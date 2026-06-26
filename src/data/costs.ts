@@ -4,8 +4,10 @@
 //   (baseDrain + SIZE*sizeDrain + speed*SIZE*moveCost) * METABOLIC_RATE  (+senescence)
 
 export const COSTS = {
-  /** baseline energy drain per tick, before any gene scaling. */
-  baseDrain: 0.04,
+  /** flat baseline drain per tick — NOT scaled by METABOLIC_RATE (metabolism.ts),
+   * so evolution can't escape its energy cost and push carrying capacity past the
+   * population cap. This is the main knob on food-bound carrying capacity. */
+  baseDrain: 0.05,
   /** extra drain per tick per unit SIZE (big bodies are expensive). */
   sizeDrain: 0.05,
   /** drain per tick per (px/sec of speed × SIZE) — moving costs energy. */

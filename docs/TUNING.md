@@ -16,10 +16,10 @@ not edit-refresh. Until then, edit the data file and refresh.
 | Lever | Constant(s) | File | Current |
 |---|---|---|---|
 | **Movement amount** | `baseMaxSpeed`, `steerAccel`, `wallBounce` | `src/data/sim.ts` | 95, 6, 0.5 |
-| **Food available** | `cellCapacity`, `clumping`, `clumpCount`, `startFrac` | `src/data/resources.ts` | 20, 0.7, 14, 0.6 |
-| **Regrowth rate** | `regrowthRate` | `src/data/resources.ts` | 0.06 |
+| **Food available** | `cellCapacity`, `clumping`, `clumpCount`, `startFrac` | `src/data/resources.ts` | 14, 0.7, 14, 0.35 |
+| **Regrowth rate** | `regrowthRate` | `src/data/resources.ts` | 0.045 |
 | **Intake rate** | `intakeRate` | `src/data/costs.ts` | 1.1 |
-| **Metabolic costs** | `baseDrain`, `sizeDrain`, `moveCost`, `senescenceDrain` | `src/data/costs.ts` | 0.04, 0.05, 0.0009, 0.25 |
+| **Metabolic costs** | `baseDrain` (flat), `sizeDrain`, `moveCost`, `senescenceDrain` | `src/data/costs.ts` | 0.05, 0.05, 0.0009, 0.25 |
 | **Mutation scale** | `baseMutationScale`, `mutabilityFloor` | `src/data/sim.ts` | 0.08, 0.05 |
 | **Reproduction** | `reproInvestFrac`, `birthJitter` | `src/data/sim.ts` | 0.7, 14 |
 | **Conflict** | `range`, `aggressionThreshold`, `loserDamage`, `cooldownTicks`, `contestResourceMin` | `src/data/conflict.ts` | 30, 0.45, 6, 18, 4 |
@@ -34,10 +34,15 @@ pause, and the headless trigger.
 
 ## B. Balance goals (ongoing tuning, from headless + headful observation)
 
-1. **Make scarcity — not the population cap — the binding constraint.** Population
-   currently pins at `MAX_AGENTS`/`activeCount` because food outpaces death. Lower
-   `regrowthRate` / `cellCapacity` or raise `COSTS` so the equilibrium sits below the
-   cap and famines actually sweep. This is what turns selection on.
+1. ~~**Make scarcity — not the population cap — the binding constraint.**~~ DONE.
+   Two changes: (a) `baseDrain` is now a **flat** cost not scaled by METABOLIC_RATE
+   (`metabolism.ts`), so evolution can't drive drain → 0 and push carrying capacity
+   past the cap; (b) lowered food supply (`regrowthRate` 0.06→0.045, `cellCapacity`
+   20→14, `startFrac` 0.6→0.35 to kill the initial boom). Result: equilibrates
+   ~2000-2400 at full intensity (cap 5000), food-bound at every intensity (≈2348 at
+   55%), with mild famine/regrowth oscillation. Side effect: METABOLIC_RATE regained
+   its tradeoff (rises under scarcity — you must move to find patchy food). Tuned
+   empirically via a headless sweep across seeds.
 2. **Give SIZE a real tradeoff.** It drifts toward its floor (~0.4) because small
    cheap bodies breed fastest and big bodies rarely cash in their fight advantage. A
    gene pinned at one end is a "bug by definition" (CLAUDE.md). Fix by making food

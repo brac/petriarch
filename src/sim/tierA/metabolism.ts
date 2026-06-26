@@ -37,7 +37,11 @@ export function metabolism(world: World): void {
     const vy = velY[i]!;
     const speed = Math.sqrt(vx * vx + vy * vy);
 
-    let drain = (COSTS.baseDrain + size * COSTS.sizeDrain + speed * size * COSTS.moveCost) * mr;
+    // A flat baseline cost every agent pays just to exist — NOT scaled by
+    // METABOLIC_RATE, so evolution can't drive drain to ~0 by minimizing it (which
+    // would push carrying capacity above the population cap and stop scarcity from
+    // binding). The active costs (size upkeep, movement) still scale with metabolism.
+    let drain = COSTS.baseDrain + (size * COSTS.sizeDrain + speed * size * COSTS.moveCost) * mr;
 
     // Senescence: drain ramps once past 80% of lifespan.
     const onset = lifespan * 0.8;

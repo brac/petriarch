@@ -1,0 +1,52 @@
+// The genome contract (see docs/genome.md). Every gene is a float in one flat
+// SoA buffer; agent i's genome occupies [i*GENE_COUNT .. i*GENE_COUNT+GENE_COUNT).
+// The ONLY legal access pattern anywhere in the codebase is
+//   genes[i * GENE_COUNT + GENE.X]
+// — identical to what a WGSL compute shader binds. No wrapper objects (CLAUDE.md
+// rule 3). Adding a gene = append an index, bump GENE_COUNT, add a GENE_RANGE row.
+
+export const GENE = {
+  // --- metabolic / body (the cost backbone) ---
+  SIZE: 0,
+  METABOLIC_RATE: 1,
+  REPRO_THRESHOLD: 2,
+  LIFESPAN: 3,
+  FERTILITY: 4,
+  MUTABILITY: 5,
+  // --- steering / behavior (Tier A — read by the steering pass) ---
+  KIN_COHESION: 6,
+  SEPARATION: 7,
+  RESOURCE_ATTRACT: 8,
+  THREAT_AVOID: 9,
+  WANDER: 10,
+  AGGRESSION: 11,
+  // --- social tag (group identity; drifts → speciation; maps to hue) ---
+  SIG_A: 12,
+  SIG_B: 13,
+  SIG_C: 14,
+} as const;
+
+/** Stride of the genome buffer. Pools and shaders read this constant. */
+export const GENE_COUNT = 15;
+
+// Per-gene [min, max], clamped after mutation. PLACEHOLDER bounds — flagged for a
+// tuning pass at the start of Milestone 1. They only need to compile and be
+// correct (min < max) so the reproduce clamp works from the first real run:
+//   Math.max(GENE_RANGE[g][0], Math.min(GENE_RANGE[g][1], v))
+export const GENE_RANGE: Record<number, [number, number]> = {
+  [GENE.SIZE]: [0.3, 3.0],
+  [GENE.METABOLIC_RATE]: [0.1, 2.0],
+  [GENE.REPRO_THRESHOLD]: [0.2, 5.0],
+  [GENE.LIFESPAN]: [0.1, 5.0],
+  [GENE.FERTILITY]: [1.0, 8.0],
+  [GENE.MUTABILITY]: [0.0, 1.0],
+  [GENE.KIN_COHESION]: [0.0, 1.0],
+  [GENE.SEPARATION]: [0.0, 1.0],
+  [GENE.RESOURCE_ATTRACT]: [0.0, 1.0],
+  [GENE.THREAT_AVOID]: [0.0, 1.0],
+  [GENE.WANDER]: [0.0, 1.0],
+  [GENE.AGGRESSION]: [0.0, 1.0],
+  [GENE.SIG_A]: [0.0, 1.0],
+  [GENE.SIG_B]: [0.0, 1.0],
+  [GENE.SIG_C]: [0.0, 1.0],
+};

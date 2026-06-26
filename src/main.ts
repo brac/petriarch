@@ -7,20 +7,10 @@ import { Loop } from "./core/loop";
 import { createWorld, type World } from "./state/world";
 import { WORLD_W, WORLD_H } from "./data/capacity";
 import { initResourceField, seedPopulation } from "./sim/init";
+import { simStep } from "./sim/step";
 import { NetRenderer } from "./views/netRenderer";
 import { PerfOverlay } from "./views/perfOverlay";
 import { Hud } from "./views/hud";
-
-// Tier A (GPU-portable) passes.
-import { sense } from "./sim/tierA/sense";
-import { steer } from "./sim/tierA/steer";
-import { integrate } from "./sim/tierA/integrate";
-import { metabolism } from "./sim/tierA/metabolism";
-// Tier B (CPU, symbolic) systems.
-import { resources } from "./sim/tierB/resources";
-import { conflict } from "./sim/tierB/conflict";
-import { reproduce } from "./sim/tierB/reproduce";
-import { death } from "./sim/tierB/death";
 import { bloom, hazard, smite } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
 
@@ -62,32 +52,8 @@ function main(): void {
   // One fixed tick: the canonical sim order (docs/simulation-systems.md §Tier map),
   // with thinking (sense+steer) decoupled from acting via the think timer.
   const loop = new Loop({
-    update(dt: number): void {
-      world.tick++;
-      world.time += dt;
-
-      resources(world); // 1 — deplete/regrow the field (Tier B)
-
-      // 2-3 — think every THINK_INTERVAL ticks; steer output is cached between.
-      let didThink = false;
-      if (++world.thinkTimer >= world.intensity.thinkInterval) {
-        world.thinkTimer = 0;
-        didThink = true;
-        sense(world);
-        steer(world);
-      }
-
-      integrate(world); // 4 — apply steering, move (Tier A, every tick)
-      metabolism(world); // 5 — energy drain + intake (Tier A, every tick)
-      // 6 — contests at resource sites (Tier B). Runs EVERY tick so conflict
-      // pressure is intensity-invariant; reuses sense's neighbor cache on think
-      // ticks (didThink), else does its own cheap query for the food-subset.
-      conflict(world, didThink);
-      reproduce(world); // 7 — energy-threshold births into free slots (Tier B)
-      death(world); // 8 — starvation / senescence swap-remove (Tier B)
-
-      // 9 — rebuild the spatial hash for next tick's sense pass.
-      world.hash.build(world.agents.posX, world.agents.posY, world.agents.count);
+    update(): void {
+      simStep(world); // the canonical fixed tick (shared with headless)
     },
     render(alpha: number): void {
       renderer.render(world, alpha);

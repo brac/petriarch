@@ -9,6 +9,14 @@ The natural home for the *controls* is the **Tooling pass** (`src/views/devPanel
 — currently a stub): expose these as live dev sliders so tuning becomes experiment,
 not edit-refresh. Until then, edit the data file and refresh.
 
+**Measured runs (built):** `npm run headless` fast-forwards the sim with no render
+and prints per-generation pop / lineage / births / deaths / gene mean±sd — use it to
+check a tuning change. Deterministic from the seed.
+```
+npm run headless -- --ticks 8000 --interval 1000 [--seed N] [--intensity 0..1]
+npm run --silent headless -- --csv > run.csv      # machine-readable
+```
+
 ---
 
 ## A. Values to expose as dev sliders (Tooling pass)

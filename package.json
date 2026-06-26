@@ -8,13 +8,15 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "headless": "echo 'headless fast-forward lands in the tooling pass (post-Milestone-1) — see src/tools/headless.ts'"
+    "headless": "vite-node src/tools/headless.ts --"
   },
   "dependencies": {
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {
+    "@types/node": "^26.0.1",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vite-node": "^6.0.0"
   }
 }

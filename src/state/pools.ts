@@ -17,6 +17,9 @@ export const NEIGHBOR_STRIDE = NEIGHBOR_BUDGET_MAX;
 export class Agents {
   readonly capacity: number;
   count = 0;
+  /** Cumulative spawns/kills over the run — for headless births/deaths stats. */
+  bornTotal = 0;
+  diedTotal = 0;
 
   // --- per-agent scalar fields (each its own typed array) ---
   readonly posX: Float32Array;
@@ -99,6 +102,7 @@ export class Agents {
     this.alive[i] = 1;
     this.fightCd[i] = 0;
     this.neighborCount[i] = 0;
+    this.bornTotal++;
     return i;
   }
 
@@ -109,6 +113,7 @@ export class Agents {
    * indices and apply kills in reverse.
    */
   kill(i: number): void {
+    this.diedTotal++;
     const last = --this.count;
     this.posX[i] = this.posX[last]!;
     this.posY[i] = this.posY[last]!;

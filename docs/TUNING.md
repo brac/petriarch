@@ -50,11 +50,10 @@ pause, and the headless trigger.
 
 ## C. Design / UX items (brac flagged while watching)
 
-1. **Kin-edge visibility is wrongly tied to intensity.** `EDGE_MIN_BUDGET = 16` gates
-   the mesh on the intensity slider's neighbor budget, so edges snap on/off at a
-   threshold. Intensity is a *perf* knob; it shouldn't gate a *visual*. Decouple:
-   give edges their own control (toggle or density slider), or always-draw capped
-   (render is ~3ms even maxed). `src/views/netRenderer.ts` (`EDGE_*`).
+1. ~~**Kin-edge visibility is wrongly tied to intensity.**~~ DONE — decoupled from
+   the intensity perf knob; edges now always draw, capped at `EDGE_MAX` with `EDGE_K`
+   per agent. Future option: give them their own density slider/toggle in the dev
+   panel. `src/views/netRenderer.ts` (`EDGE_*`).
 2. **Spark design** — iterate the conflict-spark look (now an expanding white-hot
    ring). Refine shape/color/lifetime. `src/views/netRenderer.ts` (`SPARK_*`).
 3. **Conflict frequency reads low once tribes segregate** — sparks fall off as tribes

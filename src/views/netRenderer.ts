@@ -39,7 +39,6 @@ const EDGE_TINT = 0x00ffcc;
 const EDGE_ALPHA = 0.16;
 const EDGE_MAX = 4000; // hard cap on edges drawn per frame
 const EDGE_K = 3; // edges per agent
-const EDGE_MIN_BUDGET = 16; // below this intensity neighbor budget, draw no edges
 
 export class NetRenderer {
   readonly app = new Application();
@@ -171,12 +170,12 @@ export class NetRenderer {
     this.nodeHigh = count;
   }
 
-  // Kin mesh: faint lines to a few same-signature neighbors. Capped + intensity-
-  // gated. Uses the sim's spatial hash (already built this tick) — no O(n²) pass.
+  // Kin mesh: faint lines to a few same-signature neighbors. Always drawn (render
+  // is cheap), capped at EDGE_MAX with EDGE_K per agent — independent of the
+  // intensity perf knob. Uses the sim's spatial hash (already built this tick).
   private drawEdges(world: World): void {
     const g = this.edgeLayer;
     g.clear();
-    if (world.intensity.neighborBudget < EDGE_MIN_BUDGET) return;
 
     const a = world.agents;
     const { posX, posY, genes, count } = a;

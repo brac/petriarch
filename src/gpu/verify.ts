@@ -4,12 +4,16 @@
 // the headless/WSL toolchain, so this runs headful (a dev-panel button) on the live
 // world.
 //
-// For the spatial hash the meaningful invariant is per-agent cell agreement: every
-// agent must land in the SAME grid cell the CPU assigns it (cellSize 64 is a power of
-// two, so x/64 is exact in both f32 and f64 — there is no legitimate rounding
-// divergence). cellStart is reported too, but a single misplaced agent shifts every
-// downstream prefix sum, so per-agent cell mismatch is the precise signal. The order
-// of indices *within* a cell is GPU-defined (atomic scatter) and not checked.
+// CRITICAL: the sim loop keeps ticking (rAF) while this async fn awaits the GPU
+// readback — moving agents and rebuilding world.hash in place. So we FREEZE a
+// position snapshot up front and compare both the CPU cells and the GPU grid against
+// that frozen copy. Reading live world.posX after the await would compare a moved
+// CPU against the snapshotted GPU (a false mismatch — the bug this comment prevents).
+//
+// For the spatial hash the correctness condition is per-agent cell agreement: with
+// cellSize a power of two, x/cellSize is exact in both f32 and f64, so every agent
+// must land in the SAME cell. Order of indices within a cell is GPU-defined (atomic
+// scatter) and not checked.
 
 import type { World } from "../state/world";
 import type { GpuContext } from "./gpuContext";
@@ -20,12 +24,10 @@ export interface HashVerifyResult {
   /** Total agents the GPU placed (gpuStart[numCells]); should equal count. */
   gpuTotal: number;
   numCells: number;
-  /** Agents whose GPU cell differs from the CPU cell (should be 0). */
+  /** Agents whose GPU cell differs from the CPU cell on the frozen snapshot. */
   cellMismatches: number;
   /** Of those, how many are NOT in an adjacent cell (a structural bug, not boundary). */
   nonAdjacentMismatches: number;
-  /** Cells whose prefix-sum offset differed from the CPU. */
-  cellStartMismatches: number;
   /** First few human-readable mismatch notes for debugging. */
   notes: string[];
 }
@@ -33,8 +35,10 @@ export interface HashVerifyResult {
 export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVerifyResult> {
   const a = world.agents;
   const count = a.count;
-  const posX = a.posX;
-  const posY = a.posY;
+
+  // Freeze positions BEFORE any await — the source of truth for this whole check.
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
 
   const cellSize = world.hash.cellSize;
   const gridW = world.hash.gridW;
@@ -49,12 +53,12 @@ export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVer
     return cy * gridW + cx;
   };
 
-  // CPU golden reference for the current positions.
-  world.hash.build(posX, posY, count);
-  const cpuStart = world.hash.cellStart;
+  // CPU cell for each agent, from the frozen snapshot.
+  const cpuCellOf = new Int32Array(count);
+  for (let i = 0; i < count; i++) cpuCellOf[i] = cellOf(snapX[i]!, snapY[i]!);
 
-  // GPU build from the same positions.
-  gpu.buildHash(posX, posY, count);
+  // GPU build from the SAME frozen snapshot.
+  gpu.buildHash(snapX, snapY, count);
   const { cellStart: gpuStart, items: gpuItems } = await gpu.readGrid();
 
   // Derive each agent's GPU cell from the returned grid (items grouped by cell).
@@ -71,7 +75,7 @@ export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVer
   let nonAdjacentMismatches = 0;
   const notes: string[] = [];
   for (let i = 0; i < count; i++) {
-    const cpuC = cellOf(posX[i]!, posY[i]!);
+    const cpuC = cpuCellOf[i]!;
     const gpuC = gpuCellOf[i]!;
     if (cpuC === gpuC) continue;
     cellMismatches++;
@@ -82,13 +86,10 @@ export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVer
     if (cheb > 1) nonAdjacentMismatches++;
     if (notes.length < 8) {
       notes.push(
-        `agent ${i} pos=(${posX[i]!.toFixed(2)},${posY[i]!.toFixed(2)}) cpuCell=${cpuC} gpuCell=${gpuC} cheb=${cheb}`,
+        `agent ${i} pos=(${snapX[i]!.toFixed(2)},${snapY[i]!.toFixed(2)}) cpuCell=${cpuC} gpuCell=${gpuC} cheb=${cheb}`,
       );
     }
   }
-
-  let cellStartMismatches = 0;
-  for (let c = 0; c <= numCells; c++) if (cpuStart[c]! !== gpuStart[c]!) cellStartMismatches++;
 
   return {
     ok: cellMismatches === 0,
@@ -97,7 +98,6 @@ export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVer
     numCells,
     cellMismatches,
     nonAdjacentMismatches,
-    cellStartMismatches,
     notes,
   };
 }

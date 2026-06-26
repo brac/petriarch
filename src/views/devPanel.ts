@@ -193,7 +193,7 @@ export class DevPanel {
           const r = await verifyHash(world, gpu);
           gpuStatus.textContent =
             `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} gpuTotal=${r.gpuTotal} cells=${r.numCells}\n` +
-            `cell diffs: ${r.cellMismatches} (non-adjacent: ${r.nonAdjacentMismatches})  cellStart diffs: ${r.cellStartMismatches}` +
+            `cell diffs: ${r.cellMismatches} (non-adjacent: ${r.nonAdjacentMismatches})` +
             (r.notes.length ? "\n" + r.notes.join("\n") : "");
         } catch (err) {
           gpuStatus.textContent = "error: " + (err instanceof Error ? err.message : String(err));

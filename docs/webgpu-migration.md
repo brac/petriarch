@@ -116,6 +116,14 @@ pass. The four kernels have read/write hazards on each other (`counts`, `cellSta
 `scan` read `counts` before `count` finished, corrupting nearly every cell offset.
 The same per-pass-barrier discipline applies when chaining the Tier A kernels.
 
+Gotcha #2 (also found on hardware): a verify runs `async` while the rAF sim loop
+keeps ticking — moving agents and rebuilding `world.hash` in place across every
+`await`. Comparing live `world` state after the readback compares a *moved* CPU
+against the GPU's earlier snapshot (false ±1-cell mismatches, plus swap-remove
+reassigning agent indices on births/deaths). Every GPU verify must **freeze a
+snapshot of the inputs before the first await** and compare both sides against that
+copy. Applies to the sense/steer/integrate/metabolism verifies too.
+
 **Next:** confirm the button passes on real hardware, then keep grid state resident on
 the GPU and port `sense` reading it, then `steer` → `integrate` → `metabolism`, each
 verified against the CPU pass before wiring readback into the loop.

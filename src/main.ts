@@ -95,10 +95,18 @@ function main(): void {
       const t0 = performance.now();
       let gpuMs = 0;
       let tierBMs = 0;
+      let cMs = 0;
+      let rMs = 0;
+      let dMs = 0;
+      let hMs = 0;
       for (let i = 0; i < speed; i++) {
         await simStepGpu(world, dev);
         gpuMs += gpuTiming.gpuMs;
         tierBMs += gpuTiming.tierBMs;
+        cMs += gpuTiming.conflictMs;
+        rMs += gpuTiming.reproduceMs;
+        dMs += gpuTiming.deathMs;
+        hMs += gpuTiming.hashMs;
       }
       loop.updateMs = performance.now() - t0;
       loop.ticksLastFrame = speed;
@@ -107,7 +115,13 @@ function main(): void {
       loop.renderMs = performance.now() - r0;
       if (lastFrameT) loop.fps = 1000 / (now - lastFrameT);
       lastFrameT = now;
-      perf.update(loop, world.agents.count, `gpu      ${gpuMs.toFixed(2)}ms\ntierB    ${tierBMs.toFixed(2)}ms`);
+      perf.update(
+        loop,
+        world.agents.count,
+        `gpu      ${gpuMs.toFixed(1)}ms\n` +
+          `tierB    ${tierBMs.toFixed(1)}ms\n` +
+          ` confl ${cMs.toFixed(1)} repr ${rMs.toFixed(1)} death ${dMs.toFixed(1)} hash ${hMs.toFixed(1)}`,
+      );
       hud.update();
       requestAnimationFrame(gpuFrame);
     })();

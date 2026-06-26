@@ -25,8 +25,16 @@ import { conflict } from "../sim/tierB/conflict";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
 
-/** Last-tick timing split (ms), for the perf overlay: GPU round-trip vs CPU Tier B. */
-export const gpuTiming = { gpuMs: 0, tierBMs: 0 };
+/** Last-tick timing split (ms), for the perf overlay: GPU round-trip vs CPU Tier B,
+ *  with Tier B broken down per phase so the hot one is visible. */
+export const gpuTiming = {
+  gpuMs: 0,
+  tierBMs: 0,
+  hashMs: 0,
+  conflictMs: 0,
+  reproduceMs: 0,
+  deathMs: 0,
+};
 
 export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   const a = world.agents;
@@ -61,10 +69,18 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   // Tier B on the read-back state. conflict does its OWN hash query (no GPU neighbor
   // cache), so the hash must be current.
   world.hash.build(a.posX, a.posY, count); // 6
+  const tHash = performance.now();
   conflict(world, false); // 7
+  const tConflict = performance.now();
   reproduce(world); // 8
+  const tReproduce = performance.now();
   death(world); // 9
+  const tDeath = performance.now();
 
   gpuTiming.gpuMs = tAfterGpu - tAfterRes; // upload + Tier A + readback (the sync)
-  gpuTiming.tierBMs = tAfterRes - t0 + (performance.now() - tAfterGpu); // CPU Tier B
+  gpuTiming.hashMs = tHash - tAfterGpu;
+  gpuTiming.conflictMs = tConflict - tHash;
+  gpuTiming.reproduceMs = tReproduce - tConflict;
+  gpuTiming.deathMs = tDeath - tReproduce;
+  gpuTiming.tierBMs = tAfterRes - t0 + (tDeath - tAfterGpu); // resources + all of Tier B
 }

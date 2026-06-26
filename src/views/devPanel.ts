@@ -14,7 +14,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { GpuContext } from "../gpu/gpuContext";
-import { verifyHash } from "../gpu/verify";
+import { verifyHash, verifySense } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
@@ -174,11 +174,9 @@ export class DevPanel {
     let gpu: GpuContext | null = null;
     let gpuTried = false;
 
-    const verify = document.createElement("button");
-    verify.className = "dp-reset";
-    verify.textContent = "verify GPU hash";
-    verify.addEventListener("click", () => {
-      verify.disabled = true;
+    // Lazily acquire the device once, run `job` against it, render its text status.
+    const runGpu = (btn: HTMLButtonElement, job: (g: GpuContext) => Promise<string>): void => {
+      btn.disabled = true;
       gpuStatus.textContent = "running…";
       void (async () => {
         try {
@@ -186,23 +184,44 @@ export class DevPanel {
             gpuTried = true;
             gpu = await GpuContext.create(HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS);
           }
-          if (!gpu) {
-            gpuStatus.textContent = "WebGPU unavailable";
-            return;
-          }
-          const r = await verifyHash(world, gpu);
-          gpuStatus.textContent =
-            `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} gpuTotal=${r.gpuTotal} cells=${r.numCells}\n` +
-            `cell diffs: ${r.cellMismatches} (non-adjacent: ${r.nonAdjacentMismatches})` +
-            (r.notes.length ? "\n" + r.notes.join("\n") : "");
+          gpuStatus.textContent = gpu ? await job(gpu) : "WebGPU unavailable";
         } catch (err) {
           gpuStatus.textContent = "error: " + (err instanceof Error ? err.message : String(err));
         } finally {
-          verify.disabled = false;
+          btn.disabled = false;
         }
       })();
-    });
-    body.appendChild(verify);
+    };
+
+    const verifyH = document.createElement("button");
+    verifyH.className = "dp-reset";
+    verifyH.textContent = "verify GPU hash";
+    verifyH.addEventListener("click", () =>
+      runGpu(verifyH, async (g) => {
+        const r = await verifyHash(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} gpuTotal=${r.gpuTotal} cells=${r.numCells}\n` +
+          `cell diffs: ${r.cellMismatches} (non-adjacent: ${r.nonAdjacentMismatches})` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyH);
+
+    const verifyS = document.createElement("button");
+    verifyS.className = "dp-reset";
+    verifyS.textContent = "verify GPU sense (max intensity)";
+    verifyS.addEventListener("click", () =>
+      runGpu(verifyS, async (g) => {
+        const r = await verifySense(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} compared=${r.compared} capped=${r.capped}\n` +
+          `count diffs: ${r.countMismatches}  agg diffs: ${r.aggMismatches}  worstRel: ${r.worstRel.toExponential(2)}` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyS);
     body.appendChild(gpuStatus);
   }
 }

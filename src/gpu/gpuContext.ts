@@ -9,14 +9,26 @@
 
 import { acquireGpuDevice, type GpuDevice } from "./device";
 import { HASH_WGSL } from "./shaders/hash.wgsl";
+import { SENSE_WGSL } from "./shaders/sense.wgsl";
+import { GENE_COUNT } from "../data/genome";
 
 const WG = 64; // workgroup size for the per-agent/per-cell kernels (must match WGSL)
+/** Interleaved sense output stride: [kinX,kinY,kinCount,sepX,sepY,avoidX,avoidY]. */
+export const SENSE_STRIDE = 7;
 
 export interface GpuGridResult {
   /** Exclusive prefix sums, length numCells+1 (a fresh copy off the GPU). */
   cellStart: Uint32Array;
   /** Agent indices grouped by cell, length capacity (order within a cell is GPU-defined). */
   items: Uint32Array;
+}
+
+/** Per-agent sense parameters mirroring the CPU pass's SIM constants + budget. */
+export interface SenseParams {
+  budget: number;
+  senseR2: number;
+  sepR2: number;
+  sigT: number;
 }
 
 export class GpuContext {
@@ -46,6 +58,17 @@ export class GpuContext {
   private readonly pipeCount: GPUComputePipeline;
   private readonly pipeScan: GPUComputePipeline;
   private readonly pipeScatter: GPUComputePipeline;
+
+  // --- sense pass (reads the resident grid + genes; writes interleaved aggregates) ---
+  private readonly genesBuf: GPUBuffer;
+  private readonly senseParamsBuf: GPUBuffer;
+  private readonly senseOutBuf: GPUBuffer;
+  private readonly senseOutRead: GPUBuffer;
+  private readonly senseBindGroup: GPUBindGroup;
+  private readonly pipeSense: GPUComputePipeline;
+  private readonly senseParamsHost = new ArrayBuffer(32);
+  private readonly senseParamsU32 = new Uint32Array(this.senseParamsHost);
+  private readonly senseParamsF32 = new Float32Array(this.senseParamsHost);
 
   // Reused host-side scratch for the 32-byte Params upload (zero per-call alloc).
   private readonly paramsHost = new ArrayBuffer(32);
@@ -107,6 +130,41 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.cellStartBuf } },
         { binding: 5, resource: { buffer: this.itemsBuf } },
         { binding: 6, resource: { buffer: this.cursorBuf } },
+      ],
+    });
+
+    // --- sense pass: reuses posX/posY + the resident grid, adds genes + outputs ---
+    this.genesBuf = buf(capacity * GENE_COUNT * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.senseParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.senseOutBuf = buf(capacity * SENSE_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC);
+    this.senseOutRead = buf(capacity * SENSE_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+
+    const senseModule = dev.createShaderModule({ code: SENSE_WGSL });
+    const senseLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+    this.pipeSense = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [senseLayout] }),
+      compute: { module: senseModule, entryPoint: "senseMain" },
+    });
+    this.senseBindGroup = dev.createBindGroup({
+      layout: senseLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.senseParamsBuf } },
+        { binding: 1, resource: { buffer: this.posXBuf } },
+        { binding: 2, resource: { buffer: this.posYBuf } },
+        { binding: 3, resource: { buffer: this.genesBuf } },
+        { binding: 4, resource: { buffer: this.cellStartBuf } },
+        { binding: 5, resource: { buffer: this.itemsBuf } },
+        { binding: 6, resource: { buffer: this.senseOutBuf } },
       ],
     });
   }
@@ -175,5 +233,46 @@ export class GpuContext {
     this.cellStartRead.unmap();
     this.itemsRead.unmap();
     return { cellStart, items };
+  }
+
+  /**
+   * Run the sense pass. Positions and the grid must already be resident (call
+   * buildHash first on the same snapshot); this uploads genes + sense params and
+   * dispatches over the active set. Output is read with readSense().
+   */
+  senseBuild(genes: Float32Array, count: number, p: SenseParams): void {
+    this.senseParamsU32[0] = count;
+    this.senseParamsU32[1] = this.gridW;
+    this.senseParamsU32[2] = this.gridH;
+    this.senseParamsU32[3] = p.budget;
+    this.senseParamsF32[4] = this.cellSize;
+    this.senseParamsF32[5] = p.senseR2;
+    this.senseParamsF32[6] = p.sepR2;
+    this.senseParamsF32[7] = p.sigT;
+    this.queue.writeBuffer(this.senseParamsBuf, 0, this.senseParamsHost);
+
+    if (count > 0) {
+      this.queue.writeBuffer(this.genesBuf, 0, genes as Float32Array<ArrayBuffer>, 0, count * GENE_COUNT);
+    }
+
+    const enc = this.device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setBindGroup(0, this.senseBindGroup);
+    pass.setPipeline(this.pipeSense);
+    pass.dispatchWorkgroups(Math.max(1, Math.ceil(count / WG)));
+    pass.end();
+    this.queue.submit([enc.finish()]);
+  }
+
+  /** Read the interleaved sense output back (length capacity*SENSE_STRIDE copy). */
+  async readSense(): Promise<Float32Array> {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.senseOutBuf, 0, this.senseOutRead, 0, this.capacity * SENSE_STRIDE * f32);
+    this.queue.submit([enc.finish()]);
+    await this.senseOutRead.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(this.senseOutRead.getMappedRange()).slice();
+    this.senseOutRead.unmap();
+    return out;
   }
 }

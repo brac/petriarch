@@ -16,7 +16,10 @@
 // scatter) and not checked.
 
 import type { World } from "../state/world";
-import type { GpuContext } from "./gpuContext";
+import { GENE_COUNT } from "../data/genome";
+import { SIM } from "../data/sim";
+import { sense } from "../sim/tierA/sense";
+import { type GpuContext, SENSE_STRIDE } from "./gpuContext";
 
 export interface HashVerifyResult {
   ok: boolean;
@@ -98,6 +101,110 @@ export async function verifyHash(world: World, gpu: GpuContext): Promise<HashVer
     numCells,
     cellMismatches,
     nonAdjacentMismatches,
+    notes,
+  };
+}
+
+export interface SenseVerifyResult {
+  ok: boolean;
+  count: number;
+  /** Agents compared (neighborCount < budget, where CPU/GPU sample the same set). */
+  compared: number;
+  /** Agents excluded because they hit the neighbor budget (order-dependent, allowed). */
+  capped: number;
+  /** Compared agents whose kin centroid count differed (should be 0 — integer sums). */
+  countMismatches: number;
+  /** Compared agents whose float aggregates exceeded tolerance. */
+  aggMismatches: number;
+  /** Largest relative aggregate divergence seen on a compared agent. */
+  worstRel: number;
+  notes: string[];
+}
+
+// The CPU pass is run synchronously to capture its outputs BEFORE any await, so the
+// running sim loop can't move agents out from under the comparison (see verifyHash).
+export async function verifySense(world: World, gpu: GpuContext): Promise<SenseVerifyResult> {
+  const a = world.agents;
+  const count = a.count;
+
+  // Freeze inputs (sense does not mutate positions/genes, but snapshot up front).
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
+  const snapGenes = a.genes.slice(0, count * GENE_COUNT);
+
+  const budget = world.intensity.neighborBudget;
+  const senseR2 = SIM.senseRadius * SIM.senseRadius;
+  const sepR2 = SIM.separationRadius * SIM.separationRadius;
+  const sigT = SIM.sigThreshold;
+
+  // CPU reference: build the hash for current positions and run the real sense pass,
+  // then capture its outputs (the loop will overwrite these scratch arrays later).
+  world.hash.build(a.posX, a.posY, count);
+  sense(world);
+  const cKinX = a.senseKinX.slice(0, count);
+  const cKinY = a.senseKinY.slice(0, count);
+  const cKinN = a.senseKinCount.slice(0, count);
+  const cSepX = a.senseSepX.slice(0, count);
+  const cSepY = a.senseSepY.slice(0, count);
+  const cAvX = a.senseAvoidX.slice(0, count);
+  const cAvY = a.senseAvoidY.slice(0, count);
+  const cNbr = a.neighborCount.slice(0, count);
+
+  // GPU: build grid + sense on the frozen snapshot.
+  gpu.buildHash(snapX, snapY, count);
+  gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
+  const out = await gpu.readSense();
+
+  let compared = 0;
+  let capped = 0;
+  let countMismatches = 0;
+  let aggMismatches = 0;
+  let worstRel = 0;
+  const notes: string[] = [];
+
+  const tol = (cpu: number, g: number): number => Math.abs(cpu - g) / (1e-3 + Math.abs(cpu));
+
+  for (let i = 0; i < count; i++) {
+    if (cNbr[i]! >= budget) {
+      capped++; // hit the cap → which neighbors were sampled is order-dependent
+      continue;
+    }
+    compared++;
+    const o = i * SENSE_STRIDE;
+    const gKinN = out[o + 2]!;
+    if (Math.abs(gKinN - cKinN[i]!) > 0.5) {
+      countMismatches++;
+      if (notes.length < 8) notes.push(`agent ${i} kinCount cpu=${cKinN[i]} gpu=${gKinN}`);
+      continue;
+    }
+    const fields: [number, number, string][] = [
+      [cKinX[i]!, out[o + 0]!, "kinX"],
+      [cKinY[i]!, out[o + 1]!, "kinY"],
+      [cSepX[i]!, out[o + 3]!, "sepX"],
+      [cSepY[i]!, out[o + 4]!, "sepY"],
+      [cAvX[i]!, out[o + 5]!, "avoidX"],
+      [cAvY[i]!, out[o + 6]!, "avoidY"],
+    ];
+    let bad = false;
+    for (const [cpu, g, name] of fields) {
+      const r = tol(cpu, g);
+      if (r > worstRel) worstRel = r;
+      if (r > 1e-3) {
+        bad = true;
+        if (notes.length < 8) notes.push(`agent ${i} ${name} cpu=${cpu.toFixed(4)} gpu=${g.toFixed(4)} rel=${r.toExponential(2)}`);
+      }
+    }
+    if (bad) aggMismatches++;
+  }
+
+  return {
+    ok: countMismatches === 0 && aggMismatches === 0,
+    count,
+    compared,
+    capped,
+    countMismatches,
+    aggMismatches,
+    worstRel,
     notes,
   };
 }

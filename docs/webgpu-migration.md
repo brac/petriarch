@@ -124,6 +124,27 @@ reassigning agent indices on births/deaths). Every GPU verify must **freeze a
 snapshot of the inputs before the first await** and compare both sides against that
 copy. Applies to the sense/steer/integrate/metabolism verifies too.
 
-**Next:** confirm the button passes on real hardware, then keep grid state resident on
-the GPU and port `sense` reading it, then `steer` → `integrate` → `metabolism`, each
-verified against the CPU pass before wiring readback into the loop.
+**Step 4a — sense (bring-up, in progress).** `src/gpu/shaders/sense.wgsl.ts` ports
+sim/tierA/sense.ts: per agent, gather the 3×3 neighborhood from the resident grid and
+accumulate the kin centroid / separation / threat-avoidance aggregates, capped at the
+intensity budget. The seven aggregates are written **interleaved** (stride 7) into one
+buffer so the pass stays within the default 8-storage-buffers-per-stage limit
+(posX, posY, genes, cellStart, items, out = 6). `GpuContext.senseBuild` uploads genes +
+params and dispatches; `readSense` de-interleaves on readback.
+
+Verify: a **"verify GPU sense (max intensity)"** button. The neighbor budget makes the
+result order-dependent when it caps, and within-cell order is GPU-defined — so the
+verify compares only **uncapped** agents (`neighborCount < budget`), where CPU and GPU
+see the same neighbor SET: kin counts must match exactly (integer sums), float
+aggregates within tolerance (~1e-3 rel). Run at max intensity (budget 64) so almost
+nothing caps. The kernel algorithm was validated against the CPU pass in Node (a TS
+mirror) — exact counts, worstRel ~6e-8 — so the button confirms WGSL compile + GPU
+execution + the bind-group plumbing.
+
+Not yet ported: the shared `neighborList`/`neighborCount` cache the CPU sense records
+for conflict to reuse. When sense moves to the GPU permanently, conflict (Tier B, CPU)
+will need its own neighbor source (its own hash query, or a readback) — a wiring
+decision for the readback step, not this verify.
+
+**Next:** `steer` → `integrate` → `metabolism`, each verified against the CPU pass on a
+frozen snapshot before wiring readback into the loop.

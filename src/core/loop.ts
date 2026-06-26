@@ -12,8 +12,7 @@ export interface LoopCallbacks {
   render: (alpha: number) => void;
 }
 
-export const TICK_HZ = 60;
-export const TICK_DT = 1 / TICK_HZ;
+import { TICK_DT } from "./time";
 
 // Base cap on logic ticks per frame. If the tab stalls, we drop simulated time
 // rather than spiral trying to catch up (spiral-of-death guard). At simSpeed > 1

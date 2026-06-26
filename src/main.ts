@@ -4,7 +4,9 @@
 // object — systems mutate it, views only read it.
 
 import { Loop } from "./core/loop";
-import { createWorld } from "./state/world";
+import { createWorld, type World } from "./state/world";
+import { WORLD_W, WORLD_H } from "./data/capacity";
+import { initResourceField, seedPopulation } from "./sim/init";
 import { NetRenderer } from "./views/netRenderer";
 import { PerfOverlay } from "./views/perfOverlay";
 import { Hud } from "./views/hud";
@@ -19,6 +21,8 @@ import { resources } from "./sim/tierB/resources";
 import { conflict } from "./sim/tierB/conflict";
 import { reproduce } from "./sim/tierB/reproduce";
 import { death } from "./sim/tierB/death";
+import { bloom, hazard, smite } from "./sim/tierB/god";
+import { RESOURCES } from "./data/resources";
 
 // Fixed seed → reproducible runs (debugging, snapshot/restore, headless). Override
 // with ?seed=N in the URL.
@@ -44,6 +48,8 @@ function main(): void {
   const seed = seedParam !== null ? Number(seedParam) >>> 0 : DEFAULT_SEED;
 
   const world = createWorld(seed);
+  initResourceField(world);
+  seedPopulation(world);
 
   const renderer = new NetRenderer();
   const perf = new PerfOverlay(perfEl);
@@ -88,7 +94,44 @@ function main(): void {
   // Hud's sim-speed slider drives the loop; wire it now that the loop exists.
   hud.attachLoop(loop);
 
-  void renderer.init(appEl).then(() => loop.start());
+  void renderer.init(appEl).then(() => {
+    wireGodTools(appEl, renderer, world);
+    loop.start();
+  });
+}
+
+// God toolkit — the player perturbs the world, never an individual:
+//   left-click   → resource bloom    (clusters race for it)
+//   right-click  → hazard zone       (a lineage is culled or driven to migrate)
+//   shift-click / X → smite          (thin the population in an area)
+function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World): void {
+  let lastX = WORLD_W / 2;
+  let lastY = WORLD_H / 2;
+
+  canvasEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  canvasEl.addEventListener("pointerdown", (e: PointerEvent) => {
+    const w = renderer.screenToWorld(e.clientX, e.clientY);
+    lastX = w.x;
+    lastY = w.y;
+    if (e.button === 2) {
+      hazard(world, w.x, w.y, RESOURCES.hazardRadius);
+    } else if (e.button === 0 && e.shiftKey) {
+      smite(world, w.x, w.y, RESOURCES.smiteRadius);
+    } else if (e.button === 0) {
+      bloom(world, w.x, w.y, RESOURCES.bloomRadius);
+    }
+  });
+
+  canvasEl.addEventListener("pointermove", (e: PointerEvent) => {
+    const w = renderer.screenToWorld(e.clientX, e.clientY);
+    lastX = w.x;
+    lastY = w.y;
+  });
+
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "x" || e.key === "X") smite(world, lastX, lastY, RESOURCES.smiteRadius);
+  });
 }
 
 main();

@@ -1,12 +1,127 @@
-// Tier A — GPU-portable, buffer contract. The core behavior pass and the one whose
-// WGSL port matters most. Every THINK_INTERVAL ticks, compute a weighted steering
-// vector per agent from the behavior genes (KIN_COHESION, SEPARATION,
-// RESOURCE_ATTRACT, THREAT_AVOID, WANDER) over the sensed neighbors, and write it
-// to agents.steerX/steerY for integrate to consume. STUB — implemented in M1.
+// Tier A — GPU-portable, buffer contract. The core behavior pass (the one whose
+// WGSL port matters most). Every THINK_INTERVAL ticks, combine the sensed
+// aggregates with the behavior genes, a resource-gradient pull, and a seeded wander
+// into one unit steering direction, cached in agents.steerX/steerY for integrate to
+// consume every tick. Each gene weight is a tradeoff (docs/genome.md).
 
 import type { World } from "../../state/world";
+import { GENE, GENE_COUNT } from "../../data/genome";
+import {
+  RES_CELL_W,
+  RES_CELL_H,
+  RESOURCE_GRID_W,
+  RESOURCE_GRID_H,
+} from "../../data/capacity";
 
-export function steer(_world: World): void {
-  // TODO Milestone 1: genes[i*GENE_COUNT + GENE.X] → steering vector. Cached in
-  // steerX/steerY between thinks. Keep strictly to the flat-buffer contract.
+const TAU = Math.PI * 2;
+
+export function steer(world: World): void {
+  const a = world.agents;
+  const { posX, posY, genes, steerX, steerY, count } = a;
+  const res = world.resources;
+  const rng = world.rng;
+  const gw = RESOURCE_GRID_W;
+  const gh = RESOURCE_GRID_H;
+
+  for (let i = 0; i < count; i++) {
+    const bi = i * GENE_COUNT;
+    const xi = posX[i]!;
+    const yi = posY[i]!;
+
+    // --- cohesion: toward the kin centroid ---
+    let cohX = 0;
+    let cohY = 0;
+    const kinN = a.senseKinCount[i]!;
+    if (kinN > 0) {
+      cohX = a.senseKinX[i]! / kinN - xi;
+      cohY = a.senseKinY[i]! / kinN - yi;
+      const l = Math.sqrt(cohX * cohX + cohY * cohY);
+      if (l > 1e-4) {
+        cohX /= l;
+        cohY /= l;
+      } else {
+        cohX = 0;
+        cohY = 0;
+      }
+    }
+
+    // --- separation (already a sum of repulsions) ---
+    let sepX = a.senseSepX[i]!;
+    let sepY = a.senseSepY[i]!;
+    {
+      const l = Math.sqrt(sepX * sepX + sepY * sepY);
+      if (l > 1e-4) {
+        sepX /= l;
+        sepY /= l;
+      } else {
+        sepX = 0;
+        sepY = 0;
+      }
+    }
+
+    // --- threat avoidance ---
+    let avX = a.senseAvoidX[i]!;
+    let avY = a.senseAvoidY[i]!;
+    {
+      const l = Math.sqrt(avX * avX + avY * avY);
+      if (l > 1e-4) {
+        avX /= l;
+        avY /= l;
+      } else {
+        avX = 0;
+        avY = 0;
+      }
+    }
+
+    // --- resource gradient: toward the richer of the 4-neighbor cells ---
+    let cx = (xi / RES_CELL_W) | 0;
+    if (cx < 0) cx = 0;
+    else if (cx >= gw) cx = gw - 1;
+    let cy = (yi / RES_CELL_H) | 0;
+    if (cy < 0) cy = 0;
+    else if (cy >= gh) cy = gh - 1;
+    const xl = cx > 0 ? cx - 1 : cx;
+    const xr = cx < gw - 1 ? cx + 1 : cx;
+    const yu = cy > 0 ? cy - 1 : cy;
+    const yd = cy < gh - 1 ? cy + 1 : cy;
+    const rowc = cy * gw;
+    let rgx = res[rowc + xr]! - res[rowc + xl]!;
+    let rgy = res[yd * gw + cx]! - res[yu * gw + cx]!;
+    {
+      const l = Math.sqrt(rgx * rgx + rgy * rgy);
+      if (l > 1e-4) {
+        rgx /= l;
+        rgy /= l;
+      } else {
+        rgx = 0;
+        rgy = 0;
+      }
+    }
+
+    // --- wander: a seeded unit vector ---
+    const ang = rng.next() * TAU;
+    const wx = Math.cos(ang);
+    const wy = Math.sin(ang);
+
+    // --- weighted blend ---
+    const kc = genes[bi + GENE.KIN_COHESION]!;
+    const se = genes[bi + GENE.SEPARATION]!;
+    const ra = genes[bi + GENE.RESOURCE_ATTRACT]!;
+    const ta = genes[bi + GENE.THREAT_AVOID]!;
+    const wa = genes[bi + GENE.WANDER]!;
+
+    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + wa * wx;
+    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + wa * wy;
+
+    const l = Math.sqrt(dx * dx + dy * dy);
+    if (l > 1e-4) {
+      dx /= l;
+      dy /= l;
+    } else {
+      dx = 0;
+      dy = 0;
+    }
+    steerX[i] = dx;
+    steerY[i] = dy;
+  }
 }

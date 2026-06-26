@@ -29,17 +29,24 @@ export const GENE = {
 /** Stride of the genome buffer. Pools and shaders read this constant. */
 export const GENE_COUNT = 15;
 
-// Per-gene [min, max], clamped after mutation. PLACEHOLDER bounds — flagged for a
-// tuning pass at the start of Milestone 1. They only need to compile and be
-// correct (min < max) so the reproduce clamp works from the first real run:
+// Per-gene [min, max], clamped after mutation:
 //   Math.max(GENE_RANGE[g][0], Math.min(GENE_RANGE[g][1], v))
+// These are the first real tuning surface (docs/genome.md). Units:
+//   SIZE            — body scale (× on energy storage, conflict strength, move cost)
+//   METABOLIC_RATE  — × on both speed/responsiveness and energy drain
+//   REPRO_THRESHOLD — fraction of an agent's max energy required to breed
+//   LIFESPAN        — seconds before senescence/death
+//   FERTILITY       — offspring per reproduction event
+//   MUTABILITY      — per-agent mutation scale applied to its own offspring
+//   behavior genes  — [0,1] steering weights
+//   SIG_A/B/C       — [0,1] point in tag-space (group identity → hue)
 export const GENE_RANGE: Record<number, [number, number]> = {
   [GENE.SIZE]: [0.3, 3.0],
-  [GENE.METABOLIC_RATE]: [0.1, 2.0],
-  [GENE.REPRO_THRESHOLD]: [0.2, 5.0],
-  [GENE.LIFESPAN]: [0.1, 5.0],
-  [GENE.FERTILITY]: [1.0, 8.0],
-  [GENE.MUTABILITY]: [0.0, 1.0],
+  [GENE.METABOLIC_RATE]: [0.25, 2.0],
+  [GENE.REPRO_THRESHOLD]: [0.3, 0.95],
+  [GENE.LIFESPAN]: [20, 300],
+  [GENE.FERTILITY]: [1, 6],
+  [GENE.MUTABILITY]: [0.0, 0.5],
   [GENE.KIN_COHESION]: [0.0, 1.0],
   [GENE.SEPARATION]: [0.0, 1.0],
   [GENE.RESOURCE_ATTRACT]: [0.0, 1.0],

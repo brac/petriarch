@@ -21,10 +21,14 @@ export const THINK_INTERVAL = THINK_INTERVAL_MAX;
 export const NEIGHBOR_BUDGET_MIN = 8;
 export const NEIGHBOR_BUDGET_MAX = 64;
 
-// --- spatial hash --- (PLACEHOLDER: calibrate to the real sensing/conflict radius
-// once sense.ts defines it in Milestone 1.)
-export const HASH_CELL_SIZE = 48;
+// --- spatial hash --- cell ~ the sense radius so a 3×3 block covers a query.
+export const HASH_CELL_SIZE = 64;
 
-// --- resource field grid --- (PLACEHOLDER dims; ~24px cells over the world.)
+/** Max simultaneous conflict sparks the renderer can show (pooled). */
+export const MAX_SPARKS = 256;
+
+// --- resource field grid --- ~24px cells over the 1920×1080 world.
 export const RESOURCE_GRID_W = 80;
 export const RESOURCE_GRID_H = 45;
+export const RES_CELL_W = WORLD_W / RESOURCE_GRID_W;
+export const RES_CELL_H = WORLD_H / RESOURCE_GRID_H;

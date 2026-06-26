@@ -14,6 +14,7 @@ import {
   WORLD_H,
   RESOURCE_GRID_W,
   RESOURCE_GRID_H,
+  MAX_SPARKS,
 } from "../data/capacity";
 
 // Re-exported so views and gameplay math import world extents from one place.
@@ -27,12 +28,31 @@ export interface LineageStats {
   nextId: number;
 }
 
+/** A single active god-hazard zone (energy-draining). life>0 means active. */
+export interface Hazard {
+  x: number;
+  y: number;
+  r: number;
+  life: number;
+}
+
+/** Pooled conflict-spark events: positions the renderer flashes, reset each frame. */
+export interface SparkPool {
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+  count: number;
+}
+
 export interface World {
   readonly agents: Agents;
   readonly hash: SpatialHash;
   readonly rng: Rng;
   /** Resource field: flat RESOURCE_GRID_W × RESOURCE_GRID_H energy grid (Tier B). */
   readonly resources: Float32Array;
+  /** Per-cell regrow target (the capacity field, shaped at init by clumping). */
+  readonly resourceCap: Float32Array;
+  readonly hazard: Hazard;
+  readonly sparks: SparkPool;
   readonly intensity: IntensityState;
   readonly lineage: LineageStats;
 
@@ -50,6 +70,9 @@ export function createWorld(seed: number): World {
     hash: new SpatialHash(HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS),
     rng: new Rng(seed),
     resources: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    resourceCap: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    hazard: { x: 0, y: 0, r: 0, life: 0 },
+    sparks: { x: new Float32Array(MAX_SPARKS), y: new Float32Array(MAX_SPARKS), count: 0 },
     intensity: createIntensityState(),
     lineage: { count: 0, nextId: 1 },
     tick: 0,

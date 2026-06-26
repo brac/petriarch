@@ -1,0 +1,43 @@
+// Core simulation tunables that aren't per-gene: movement, energy, sensing,
+// reproduction, mutation, initial conditions. The biggest levers on "do distinct
+// strategies emerge and persist" live here and in resources.ts. All speeds are in
+// px/second (the systems multiply by TICK_DT) so they read at human scale.
+
+export const SIM = {
+  // --- initial conditions ---
+  initialPop: 700,
+  founderTribes: 8, // distinct starting signatures → visible initial tribes
+
+  // --- energy ---
+  /** max energy = SIZE * maxEnergyPerSize (bigger bodies store more). */
+  maxEnergyPerSize: 70,
+  /** founders / offspring start at this fraction of their max energy. */
+  startEnergyFrac: 0.55,
+
+  // --- movement (px/sec) ---
+  /** base top speed, then scaled by METABOLIC_RATE (faster) and SIZE (slower). */
+  baseMaxSpeed: 95,
+  /** how hard velocity chases the steering target (per second). */
+  steerAccel: 6,
+  /** velocity retained at a wall after reflecting. */
+  wallBounce: 0.5,
+
+  // --- sensing (px) --- senseRadius must sit within the 3×3 hash block, i.e.
+  // <= HASH_CELL_SIZE (a neighbor up to ~1.5 cells away is covered).
+  senseRadius: 60,
+  separationRadius: 26,
+  /** tag-space distance below which two agents count as the same group. */
+  sigThreshold: 0.22,
+
+  // --- reproduction ---
+  /** fraction of REPRO threshold energy the parent invests in a litter. */
+  reproInvestFrac: 0.7,
+  /** offspring spawn jitter around the parent (px). */
+  birthJitter: 14,
+
+  // --- mutation (docs/genome.md §Mutation model) ---
+  /** base per-gene mutation scale (× gene range span), modulated by MUTABILITY. */
+  baseMutationScale: 0.08,
+  /** floor so MUTABILITY can drift but never lock evolution to zero. */
+  mutabilityFloor: 0.05,
+} as const;

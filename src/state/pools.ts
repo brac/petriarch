@@ -27,6 +27,19 @@ export class Agents {
   readonly steerY: Float32Array;
   readonly lineageId: Int32Array;
   readonly alive: Uint8Array;
+  /** Ticks until this agent may fight again (conflict cooldown). */
+  readonly fightCd: Float32Array;
+
+  // Sense-pass output scratch (Tier A): neighbor aggregates written by sense.ts
+  // every think and consumed by steer.ts the same tick. Rewritten for the whole
+  // active set each think, so they are NOT swapped on kill (no stale read).
+  readonly senseKinX: Float32Array;
+  readonly senseKinY: Float32Array;
+  readonly senseKinCount: Float32Array;
+  readonly senseSepX: Float32Array;
+  readonly senseSepY: Float32Array;
+  readonly senseAvoidX: Float32Array;
+  readonly senseAvoidY: Float32Array;
 
   // --- flat genome buffer (GENE_COUNT floats per agent) ---
   readonly genes: Float32Array;
@@ -43,6 +56,14 @@ export class Agents {
     this.steerY = new Float32Array(capacity);
     this.lineageId = new Int32Array(capacity);
     this.alive = new Uint8Array(capacity);
+    this.fightCd = new Float32Array(capacity);
+    this.senseKinX = new Float32Array(capacity);
+    this.senseKinY = new Float32Array(capacity);
+    this.senseKinCount = new Float32Array(capacity);
+    this.senseSepX = new Float32Array(capacity);
+    this.senseSepY = new Float32Array(capacity);
+    this.senseAvoidX = new Float32Array(capacity);
+    this.senseAvoidY = new Float32Array(capacity);
     this.genes = new Float32Array(capacity * GENE_COUNT);
   }
 
@@ -64,6 +85,7 @@ export class Agents {
     this.steerY[i] = 0;
     this.lineageId[i] = lineageId;
     this.alive[i] = 1;
+    this.fightCd[i] = 0;
     return i;
   }
 
@@ -85,6 +107,7 @@ export class Agents {
     this.steerY[i] = this.steerY[last]!;
     this.lineageId[i] = this.lineageId[last]!;
     this.alive[i] = this.alive[last]!;
+    this.fightCd[i] = this.fightCd[last]!;
     // Swap the whole genome slice down in one copy.
     this.genes.copyWithin(i * GENE_COUNT, last * GENE_COUNT, (last + 1) * GENE_COUNT);
   }

@@ -1,12 +1,17 @@
-// Conflict tunables (signature-distance threshold, contest damage). STUB —
-// populated in Milestone 1 when conflict.ts (Tier B) is written. Conflict ships in
-// Milestone 1: without it, borders are mush (docs/simulation-systems.md §Conflict).
+// Conflict tunables (Tier B). When a signature-dissimilar pair contests the same
+// patch and at least one is aggressive, they fight: strength scaled by SIZE ×
+// AGGRESSION with a seeded roll; the loser takes damage. This is what gives borders
+// hard edges (docs/simulation-systems.md §Conflict).
 
 export const CONFLICT = {
-  /** Tag-space distance below which two agents count as "same group". */
-  signatureThreshold: 0,
-  /** AGGRESSION above which an agent will contest rather than cede. */
-  aggressionThreshold: 0,
-  /** Damage dealt to the loser, scaled by SIZE. */
-  contestDamage: 0,
+  /** agents within this distance (px) can contest. */
+  range: 30,
+  /** at least one combatant must have AGGRESSION above this to start a fight. */
+  aggressionThreshold: 0.45,
+  /** only fight near food: cell resource must exceed this for a patch to be worth it. */
+  contestResourceMin: 4,
+  /** energy the loser loses, scaled by the winner's SIZE. */
+  loserDamage: 6,
+  /** ticks between an agent's eligible fights (keeps a frontier a grind, not a vaporize). */
+  cooldownTicks: 18,
 } as const;

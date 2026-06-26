@@ -17,8 +17,9 @@ export class PerfOverlay {
     this.el = el;
   }
 
-  /** Call once per rendered frame; throttles its own DOM writes. */
-  update(loop: Loop, agentCount: number): void {
+  /** Call once per rendered frame; throttles its own DOM writes. `extra` appends lines
+   *  (used by GPU mode to show the GPU-roundtrip vs CPU-Tier-B split). */
+  update(loop: Loop, agentCount: number, extra?: string): void {
     if (++this.frames < THROTTLE_FRAMES) return;
     this.frames = 0;
 
@@ -33,6 +34,7 @@ export class PerfOverlay {
       `render   ${render}ms / ${BUDGET_RENDER_MS}ms${renderFlag}\n` +
       `ticks    ${loop.ticksLastFrame}\n` +
       `simspeed ${loop.simSpeed.toFixed(1)}x\n` +
-      `agents   ${agentCount}`;
+      `agents   ${agentCount}` +
+      (extra ? `\n${extra}` : "");
   }
 }

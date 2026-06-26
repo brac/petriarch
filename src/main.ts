@@ -15,7 +15,7 @@ import { DevPanel } from "./views/devPanel";
 import { bloom, hazard, smite } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
 import { GpuContext } from "./gpu/gpuContext";
-import { simStepGpu } from "./gpu/gpuSim";
+import { simStepGpu, gpuTiming } from "./gpu/gpuSim";
 
 // Fixed seed → reproducible runs (debugging, snapshot/restore, headless). Override
 // with ?seed=N in the URL.
@@ -93,7 +93,13 @@ function main(): void {
     void (async () => {
       const speed = Math.max(0, Math.round(loop.simSpeed)); // simSpeed 0 → paused (render only)
       const t0 = performance.now();
-      for (let i = 0; i < speed; i++) await simStepGpu(world, dev);
+      let gpuMs = 0;
+      let tierBMs = 0;
+      for (let i = 0; i < speed; i++) {
+        await simStepGpu(world, dev);
+        gpuMs += gpuTiming.gpuMs;
+        tierBMs += gpuTiming.tierBMs;
+      }
       loop.updateMs = performance.now() - t0;
       loop.ticksLastFrame = speed;
       const r0 = performance.now();
@@ -101,7 +107,7 @@ function main(): void {
       loop.renderMs = performance.now() - r0;
       if (lastFrameT) loop.fps = 1000 / (now - lastFrameT);
       lastFrameT = now;
-      perf.update(loop, world.agents.count);
+      perf.update(loop, world.agents.count, `gpu      ${gpuMs.toFixed(2)}ms\ntierB    ${tierBMs.toFixed(2)}ms`);
       hud.update();
       requestAnimationFrame(gpuFrame);
     })();

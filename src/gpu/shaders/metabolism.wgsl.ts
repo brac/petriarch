@@ -13,32 +13,38 @@
 // plentiful supply (avail never binds) every agent gets its full gain → exact match.
 
 export const METABOLISM_WGSL = /* wgsl */ `
-const GENE_COUNT = 15u;
+const GENE_COUNT = 17u;
 const G_SIZE     = 0u;
 const G_MR       = 1u;
 const G_LIFESPAN = 3u;
+const G_RES      = 15u; // RESILIENCE
+const G_EFF      = 16u; // EFFICIENCY
 
 struct Params {
-  count            : u32,
-  resGridW         : u32,
-  resGridH         : u32,
-  hazActive        : u32,
-  dt               : f32,
-  baseDrain        : f32,
-  sizeDrain        : f32,
-  moveCost         : f32,
-  senescenceDrain  : f32,
-  hazardDrain      : f32,
-  intakeRate       : f32,
-  intakeSizeExp    : f32,
-  maxEnergyPerSize : f32,
-  resCellW         : f32,
-  resCellH         : f32,
-  hzX              : f32,
-  hzY              : f32,
-  hzR2             : f32,
-  _p0              : f32,
-  _p1              : f32,
+  count              : u32,
+  resGridW           : u32,
+  resGridH           : u32,
+  hazActive          : u32,
+  dt                 : f32,
+  baseDrain          : f32,
+  sizeDrain          : f32,
+  moveCost           : f32,
+  senescenceDrain    : f32,
+  hazardDrain        : f32,
+  intakeRate         : f32,
+  intakeSizeExp      : f32,
+  maxEnergyPerSize   : f32,
+  resCellW           : f32,
+  resCellH           : f32,
+  hzX                : f32,
+  hzY                : f32,
+  hzR2               : f32,
+  resMovePenalty     : f32,
+  resHazardReduction : f32,
+  effIntakeBonus     : f32,
+  _p0                : f32,
+  _p1                : f32,
+  _p2                : f32,
 };
 
 @group(0) @binding(0) var<uniform>             P      : Params;
@@ -66,6 +72,8 @@ fn metabolismMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let size = genes[bi + G_SIZE];
   let mr = genes[bi + G_MR];
   let lifespan = genes[bi + G_LIFESPAN];
+  let resilience = genes[bi + G_RES];
+  let efficiency = genes[bi + G_EFF];
 
   let ag = age[i] + P.dt;
   age[i] = ag;
@@ -74,7 +82,9 @@ fn metabolismMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let vy = velY[i];
   let speed = sqrt(vx * vx + vy * vy);
 
-  var drain = P.baseDrain + (size * P.sizeDrain + speed * size * P.moveCost) * mr;
+  // RESILIENCE makes movement heavier (its cost).
+  let moveDrain = speed * size * P.moveCost * (1.0 + P.resMovePenalty * resilience);
+  var drain = P.baseDrain + (size * P.sizeDrain + moveDrain) * mr;
 
   let onset = lifespan * 0.8;
   if (ag > onset) {
@@ -84,26 +94,29 @@ fn metabolismMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (P.hazActive != 0u) {
     let dx = posX[i] - P.hzX;
     let dy = posY[i] - P.hzY;
-    if (dx * dx + dy * dy < P.hzR2) { drain = drain + P.hazardDrain; }
+    if (dx * dx + dy * dy < P.hzR2) {
+      drain = drain + P.hazardDrain * (1.0 - P.resHazardReduction * resilience); // armored
+    }
   }
 
   var e = energy[i] - drain;
 
-  // --- intake from the resource cell underfoot (atomic CAS-clamp) ---
+  // --- intake (atomic CAS-clamp): EFFICIENCY = more energy per unit resource ---
   let maxE = size * P.maxEnergyPerSize;
   let room = maxE - e;
   if (room > 0.0) {
-    var intakeBase = select(P.intakeRate * pow(size, P.intakeSizeExp), P.intakeRate * size, P.intakeSizeExp == 1.0);
-    let desired = min(intakeBase, room);
-    if (desired > 0.0) {
+    let effGain = 1.0 + P.effIntakeBonus * efficiency;
+    let baseTake = select(P.intakeRate * pow(size, P.intakeSizeExp), P.intakeRate * size, P.intakeSizeExp == 1.0);
+    let desiredTake = min(baseTake, room / effGain); // resource, not energy
+    if (desiredTake > 0.0) {
       let c = resCell(posX[i], posY[i]);
       loop {
         let oldBits = atomicLoad(&res[c]);
         let oldVal = bitcast<f32>(oldBits);
         if (oldVal <= 0.0) { break; }
-        let g = min(desired, oldVal);
-        let r = atomicCompareExchangeWeak(&res[c], oldBits, bitcast<u32>(oldVal - g));
-        if (r.exchanged) { e = e + g; break; }
+        let take = min(desiredTake, oldVal);
+        let r = atomicCompareExchangeWeak(&res[c], oldBits, bitcast<u32>(oldVal - take));
+        if (r.exchanged) { e = e + take * effGain; break; }
       }
     }
   }

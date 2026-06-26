@@ -9,6 +9,7 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
+import { MORPH } from "../../data/morphology";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
 import { resCellIndex } from "../grid";
 
@@ -102,7 +103,9 @@ export function conflict(world: World, useCache: boolean): void {
       // spoils are what make SIZE+AGGRESSION pay — a predator strategy that competes
       // with small-fast-forager. Predation is lossy (stealFrac < 1) so it transfers
       // energy rather than creating it; carrying capacity stays food-bound.
-      const dmg = CONFLICT.loserDamage * winSize;
+      // The loser's RESILIENCE armors it against the blow (its benefit).
+      const loserRes = genes[loser * GENE_COUNT + GENE.RESILIENCE]!;
+      const dmg = CONFLICT.loserDamage * winSize * (1 - MORPH.resDamageReduction * loserRes);
       const le = energy[loser]!;
       energy[loser] = le - dmg;
       const stolen = (le > 0 ? (dmg < le ? dmg : le) : 0) * CONFLICT.stealFrac;

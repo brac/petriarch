@@ -21,6 +21,7 @@ import { GENE_COUNT } from "../data/genome";
 import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H, WORLD_W, WORLD_H } from "../data/capacity";
 import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
+import { MORPH } from "../data/morphology";
 import { TICK_DT } from "../core/time";
 
 /** Hazard zone params for the metabolism pass (from World.hazard). */
@@ -121,7 +122,7 @@ export class GpuContext {
   private readonly intParamsBuf: GPUBuffer;
   private readonly intBindGroup: GPUBindGroup;
   private readonly pipeIntegrate: GPUComputePipeline;
-  private readonly intParamsHost = new ArrayBuffer(32);
+  private readonly intParamsHost = new ArrayBuffer(48);
   private readonly intParamsU32 = new Uint32Array(this.intParamsHost);
   private readonly intParamsF32 = new Float32Array(this.intParamsHost);
 
@@ -146,7 +147,7 @@ export class GpuContext {
   private readonly ageRead: GPUBuffer;
   private readonly metabBindGroup: GPUBindGroup;
   private readonly pipeMetab: GPUComputePipeline;
-  private readonly metabParamsHost = new ArrayBuffer(80);
+  private readonly metabParamsHost = new ArrayBuffer(96);
   private readonly metabParamsU32 = new Uint32Array(this.metabParamsHost);
   private readonly metabParamsF32 = new Float32Array(this.metabParamsHost);
 
@@ -287,7 +288,7 @@ export class GpuContext {
     // --- integrate pass: consumes steerOut, reads+writes pos/vel in place ---
     this.velXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.velYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-    this.intParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.intParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     const readBuf = (n: number): GPUBuffer => buf(n, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.posXRead = readBuf(capacity * f32);
     this.posYRead = readBuf(capacity * f32);
@@ -328,7 +329,7 @@ export class GpuContext {
     // --- metabolism pass: per-agent drain/age + atomic resource intake (8 storage) ---
     this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.ageBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-    this.metabParamsBuf = buf(80, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.metabParamsBuf = buf(96, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     this.energyRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.ageRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
 
@@ -419,6 +420,7 @@ export class GpuContext {
     this.intParamsF32[5] = SIM.sizeSpeedFactor;
     this.intParamsF32[6] = SIM.baseMaxSpeed;
     this.intParamsF32[7] = TICK_DT;
+    this.intParamsF32[8] = MORPH.effSpeedPenalty;
     this.queue.writeBuffer(this.intParamsBuf, 0, this.intParamsHost);
   }
 
@@ -441,6 +443,9 @@ export class GpuContext {
     this.metabParamsF32[15] = hz.x;
     this.metabParamsF32[16] = hz.y;
     this.metabParamsF32[17] = hz.r2;
+    this.metabParamsF32[18] = MORPH.resMovePenalty;
+    this.metabParamsF32[19] = MORPH.resHazardReduction;
+    this.metabParamsF32[20] = MORPH.effIntakeBonus;
     this.queue.writeBuffer(this.metabParamsBuf, 0, this.metabParamsHost);
   }
 

@@ -14,7 +14,7 @@
 // senseOut interleave (stride 7): [kinX, kinY, kinCount, sepX, sepY, avoidX, avoidY].
 
 export const STEER_WGSL = /* wgsl */ `
-const GENE_COUNT = 15u;
+const GENE_COUNT = 17u;
 const G_KC = 6u;   // KIN_COHESION
 const G_SE = 7u;   // SEPARATION
 const G_RA = 8u;   // RESOURCE_ATTRACT

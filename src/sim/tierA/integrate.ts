@@ -7,6 +7,7 @@
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
+import { MORPH } from "../../data/morphology";
 import { WORLD_W, WORLD_H } from "../../data/capacity";
 import { TICK_DT } from "../../core/time";
 
@@ -21,10 +22,13 @@ export function integrate(world: World): void {
     const bi = i * GENE_COUNT;
     const size = genes[bi + GENE.SIZE]!;
     const mr = genes[bi + GENE.METABOLIC_RATE]!;
+    const efficiency = genes[bi + GENE.EFFICIENCY]!;
     // px/sec: faster metabolism speeds up, bigger size slows down (penalty
     // strength = SIM.sizeSpeedFactor, mild enough that big bodies still forage).
+    // EFFICIENCY trades speed for digestion — efficient bodies are sluggish foragers.
     const k = SIM.sizeSpeedFactor;
-    const maxSpeed = (SIM.baseMaxSpeed * (0.4 + 0.6 * mr)) / (1 - k + k * size);
+    const maxSpeed =
+      ((SIM.baseMaxSpeed * (0.4 + 0.6 * mr)) / (1 - k + k * size)) * (1 - MORPH.effSpeedPenalty * efficiency);
 
     const dvx = steerX[i]! * maxSpeed;
     const dvy = steerY[i]! * maxSpeed;

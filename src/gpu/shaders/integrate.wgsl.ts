@@ -7,19 +7,24 @@
 // pass order integrate → metabolism).
 
 export const INTEGRATE_WGSL = /* wgsl */ `
-const GENE_COUNT = 15u;
+const GENE_COUNT = 17u;
 const G_SIZE = 0u;
 const G_MR   = 1u;
+const G_EFF  = 16u; // EFFICIENCY
 
 struct Params {
-  count        : u32,
-  accel        : f32,
-  bounce       : f32,
-  worldW       : f32,
-  worldH       : f32,
-  sizeSpeedK   : f32,
-  baseMaxSpeed : f32,
-  dt           : f32,
+  count           : u32,
+  accel           : f32,
+  bounce          : f32,
+  worldW          : f32,
+  worldH          : f32,
+  sizeSpeedK      : f32,
+  baseMaxSpeed    : f32,
+  dt              : f32,
+  effSpeedPenalty : f32,
+  _p0             : f32,
+  _p1             : f32,
+  _p2             : f32,
 };
 
 @group(0) @binding(0) var<uniform>             P     : Params;
@@ -38,8 +43,9 @@ fn integrateMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let bi = i * GENE_COUNT;
   let size = genes[bi + G_SIZE];
   let mr = genes[bi + G_MR];
+  let efficiency = genes[bi + G_EFF];
   let k = P.sizeSpeedK;
-  let maxSpeed = (P.baseMaxSpeed * (0.4 + 0.6 * mr)) / (1.0 - k + k * size);
+  let maxSpeed = ((P.baseMaxSpeed * (0.4 + 0.6 * mr)) / (1.0 - k + k * size)) * (1.0 - P.effSpeedPenalty * efficiency);
 
   let dvx = steer[i * 2u + 0u] * maxSpeed;
   let dvy = steer[i * 2u + 1u] * maxSpeed;

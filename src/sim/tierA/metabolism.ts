@@ -12,6 +12,7 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { COSTS } from "../../data/costs";
+import { MORPH } from "../../data/morphology";
 import { TICK_DT } from "../../core/time";
 import { resCellIndex } from "../grid";
 
@@ -29,6 +30,8 @@ export function metabolism(world: World): void {
     const size = genes[bi + GENE.SIZE]!;
     const mr = genes[bi + GENE.METABOLIC_RATE]!;
     const lifespan = genes[bi + GENE.LIFESPAN]!;
+    const resilience = genes[bi + GENE.RESILIENCE]!;
+    const efficiency = genes[bi + GENE.EFFICIENCY]!;
 
     const ag = age[i]! + dt;
     age[i] = ag;
@@ -41,7 +44,9 @@ export function metabolism(world: World): void {
     // METABOLIC_RATE, so evolution can't drive drain to ~0 by minimizing it (which
     // would push carrying capacity above the population cap and stop scarcity from
     // binding). The active costs (size upkeep, movement) still scale with metabolism.
-    let drain = COSTS.baseDrain + (size * COSTS.sizeDrain + speed * size * COSTS.moveCost) * mr;
+    // RESILIENCE makes movement heavier (armor is costly to haul) — its tradeoff cost.
+    const moveDrain = speed * size * COSTS.moveCost * (1 + MORPH.resMovePenalty * resilience);
+    let drain = COSTS.baseDrain + (size * COSTS.sizeDrain + moveDrain) * mr;
 
     // Senescence: drain ramps once past 80% of lifespan.
     const onset = lifespan * 0.8;
@@ -49,11 +54,11 @@ export function metabolism(world: World): void {
       drain += COSTS.senescenceDrain * ((ag - onset) / (lifespan * 0.2 + 1e-3));
     }
 
-    // Hazard zone drain.
+    // Hazard zone drain — RESILIENCE armors against it.
     if (hazActive) {
       const dx = posX[i]! - hz.x;
       const dy = posY[i]! - hz.y;
-      if (dx * dx + dy * dy < hzR2) drain += COSTS.hazardDrain;
+      if (dx * dx + dy * dy < hzR2) drain += COSTS.hazardDrain * (1 - MORPH.resHazardReduction * resilience);
     }
 
     let e = energy[i]! - drain;
@@ -65,16 +70,22 @@ export function metabolism(world: World): void {
       const maxE = size * SIM.maxEnergyPerSize;
       const room = maxE - e;
       if (room > 0) {
+        // EFFICIENCY = more energy per unit resource (its benefit): we deplete `take`
+        // of the cell and credit `take * effGain` energy. So efficient bodies are
+        // gentler on the field for the same energy — a sustainable niche.
+        const effGain = 1 + MORPH.effIntakeBonus * efficiency;
         // Bigger mouths harvest faster (SIZE^intakeSizeExp), so big bodies can
-        // actually accumulate energy fast enough to breed and to hold rich patches.
-        let gain: number =
+        // accumulate energy fast enough to breed and to hold rich patches.
+        const baseTake =
           COSTS.intakeSizeExp === 1
             ? COSTS.intakeRate * size
             : COSTS.intakeRate * Math.pow(size, COSTS.intakeSizeExp);
-        if (gain > avail) gain = avail;
-        if (gain > room) gain = room;
-        e += gain;
-        res[c] = avail - gain;
+        let take = baseTake;
+        if (take > avail) take = avail;
+        const roomTake = room / effGain; // resource that would exactly fill the headroom
+        if (take > roomTake) take = roomTake;
+        e += take * effGain;
+        res[c] = avail - take;
       }
     }
 

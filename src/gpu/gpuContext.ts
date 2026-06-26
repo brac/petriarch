@@ -141,24 +141,23 @@ export class GpuContext {
     const cellWG = Math.ceil(this.numCells / WG);
     const agentWG = Math.ceil(count / WG);
 
+    // Each kernel has a read/write hazard on the next (counts, cellStart, cursor).
+    // WebGPU only guarantees memory synchronization BETWEEN compute passes, not
+    // between dispatches inside one pass — so each dependent step gets its own pass.
     const enc = this.device.createCommandEncoder();
+    this.dispatch(enc, this.pipeClear, cellWG); // zero counts + cursor
+    if (agentWG > 0) this.dispatch(enc, this.pipeCount, agentWG); // tally per cell
+    this.dispatch(enc, this.pipeScan, 1); // prefix sum → cellStart
+    if (agentWG > 0) this.dispatch(enc, this.pipeScatter, agentWG); // place indices
+    this.queue.submit([enc.finish()]);
+  }
+
+  private dispatch(enc: GPUCommandEncoder, pipeline: GPUComputePipeline, workgroups: number): void {
     const pass = enc.beginComputePass();
     pass.setBindGroup(0, this.bindGroup);
-
-    pass.setPipeline(this.pipeClear);
-    pass.dispatchWorkgroups(cellWG);
-    if (agentWG > 0) {
-      pass.setPipeline(this.pipeCount);
-      pass.dispatchWorkgroups(agentWG);
-    }
-    pass.setPipeline(this.pipeScan);
-    pass.dispatchWorkgroups(1);
-    if (agentWG > 0) {
-      pass.setPipeline(this.pipeScatter);
-      pass.dispatchWorkgroups(agentWG);
-    }
+    pass.setPipeline(pipeline);
+    pass.dispatchWorkgroups(workgroups);
     pass.end();
-    this.queue.submit([enc.finish()]);
   }
 
   /** Copy the grid buffers back to the CPU (await). Returns fresh typed arrays. */

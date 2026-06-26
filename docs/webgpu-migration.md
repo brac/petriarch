@@ -109,6 +109,13 @@ and step counts — all exact; what the in-browser button confirms is the WGSL
 compilation + GPU atomic execution. The GPU path is isolated behind the button and
 does **not** touch the sim loop yet; the CPU path is unchanged.
 
+Gotcha (found on real hardware): WebGPU only guarantees memory synchronization
+**between** compute passes, not between successive `dispatchWorkgroups` inside one
+pass. The four kernels have read/write hazards on each other (`counts`, `cellStart`,
+`cursor`), so each gets its **own** compute pass in `buildHash` — a single pass let
+`scan` read `counts` before `count` finished, corrupting nearly every cell offset.
+The same per-pass-barrier discipline applies when chaining the Tier A kernels.
+
 **Next:** confirm the button passes on real hardware, then keep grid state resident on
 the GPU and port `sense` reading it, then `steer` → `integrate` → `metabolism`, each
 verified against the CPU pass before wiring readback into the loop.

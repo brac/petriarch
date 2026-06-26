@@ -11,14 +11,19 @@ import { acquireGpuDevice, type GpuDevice } from "./device";
 import { HASH_WGSL } from "./shaders/hash.wgsl";
 import { SENSE_WGSL } from "./shaders/sense.wgsl";
 import { STEER_WGSL } from "./shaders/steer.wgsl";
+import { INTEGRATE_WGSL } from "./shaders/integrate.wgsl";
 import { GENE_COUNT } from "../data/genome";
-import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H } from "../data/capacity";
+import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H, WORLD_W, WORLD_H } from "../data/capacity";
+import { SIM } from "../data/sim";
+import { TICK_DT } from "../core/time";
 
 const WG = 64; // workgroup size for the per-agent/per-cell kernels (must match WGSL)
 /** Interleaved sense output stride: [kinX,kinY,kinCount,sepX,sepY,avoidX,avoidY]. */
 export const SENSE_STRIDE = 7;
 /** Steer output stride: [steerX, steerY]. */
 export const STEER_STRIDE = 2;
+/** Integrate output stride: [posX, posY, velX, velY]. */
+export const INTEGRATE_STRIDE = 4;
 const RES_CELLS = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 export interface GpuGridResult {
@@ -85,6 +90,20 @@ export class GpuContext {
   private readonly steerParamsHost = new ArrayBuffer(32);
   private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
   private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
+
+  // --- velocity buffers (persistent agent state; integrate reads, writes them) ---
+  private readonly velXBuf: GPUBuffer;
+  private readonly velYBuf: GPUBuffer;
+
+  // --- integrate pass (per-agent physics; reads steer + state, writes new state) ---
+  private readonly intParamsBuf: GPUBuffer;
+  private readonly intOutBuf: GPUBuffer;
+  private readonly intOutRead: GPUBuffer;
+  private readonly intBindGroup: GPUBindGroup;
+  private readonly pipeIntegrate: GPUComputePipeline;
+  private readonly intParamsHost = new ArrayBuffer(32);
+  private readonly intParamsU32 = new Uint32Array(this.intParamsHost);
+  private readonly intParamsF32 = new Float32Array(this.intParamsHost);
 
   // Reused host-side scratch for the 32-byte Params upload (zero per-call alloc).
   private readonly paramsHost = new ArrayBuffer(32);
@@ -216,6 +235,44 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.senseOutBuf } },
         { binding: 5, resource: { buffer: this.resourcesBuf } },
         { binding: 6, resource: { buffer: this.steerOutBuf } },
+      ],
+    });
+
+    // --- integrate pass: consumes steerOut + persistent state, writes new state ---
+    this.velXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.velYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.intParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.intOutBuf = buf(capacity * INTEGRATE_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC);
+    this.intOutRead = buf(capacity * INTEGRATE_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+
+    const intModule = dev.createShaderModule({ code: INTEGRATE_WGSL });
+    const intLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+    this.pipeIntegrate = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [intLayout] }),
+      compute: { module: intModule, entryPoint: "integrateMain" },
+    });
+    this.intBindGroup = dev.createBindGroup({
+      layout: intLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.intParamsBuf } },
+        { binding: 1, resource: { buffer: this.posXBuf } },
+        { binding: 2, resource: { buffer: this.posYBuf } },
+        { binding: 3, resource: { buffer: this.velXBuf } },
+        { binding: 4, resource: { buffer: this.velYBuf } },
+        { binding: 5, resource: { buffer: this.steerOutBuf } },
+        { binding: 6, resource: { buffer: this.genesBuf } },
+        { binding: 7, resource: { buffer: this.intOutBuf } },
       ],
     });
   }
@@ -363,6 +420,61 @@ export class GpuContext {
     await this.steerOutRead.mapAsync(GPUMapMode.READ);
     const out = new Float32Array(this.steerOutRead.getMappedRange()).slice();
     this.steerOutRead.unmap();
+    return out;
+  }
+
+  /**
+   * Run the integrate pass on an explicit input set (used by the verify so it is
+   * isolated from the steer pass). Uploads positions, velocities, the steer vector
+   * (interleaved stride 2), and genes; reads params live from SIM/capacity so it
+   * matches the CPU pass. Output read with readIntegrate() (stride 4).
+   */
+  integrateBuild(
+    posX: Float32Array,
+    posY: Float32Array,
+    velX: Float32Array,
+    velY: Float32Array,
+    steerInterleaved: Float32Array,
+    genes: Float32Array,
+    count: number,
+  ): void {
+    this.intParamsU32[0] = count;
+    this.intParamsF32[1] = SIM.steerAccel;
+    this.intParamsF32[2] = SIM.wallBounce;
+    this.intParamsF32[3] = WORLD_W;
+    this.intParamsF32[4] = WORLD_H;
+    this.intParamsF32[5] = SIM.sizeSpeedFactor;
+    this.intParamsF32[6] = SIM.baseMaxSpeed;
+    this.intParamsF32[7] = TICK_DT;
+    this.queue.writeBuffer(this.intParamsBuf, 0, this.intParamsHost);
+
+    if (count > 0) {
+      this.queue.writeBuffer(this.posXBuf, 0, posX as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.posYBuf, 0, posY as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.velXBuf, 0, velX as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.velYBuf, 0, velY as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.steerOutBuf, 0, steerInterleaved as Float32Array<ArrayBuffer>, 0, count * STEER_STRIDE);
+      this.queue.writeBuffer(this.genesBuf, 0, genes as Float32Array<ArrayBuffer>, 0, count * GENE_COUNT);
+    }
+
+    const enc = this.device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setBindGroup(0, this.intBindGroup);
+    pass.setPipeline(this.pipeIntegrate);
+    pass.dispatchWorkgroups(Math.max(1, Math.ceil(count / WG)));
+    pass.end();
+    this.queue.submit([enc.finish()]);
+  }
+
+  /** Read the interleaved integrate output back (length capacity*INTEGRATE_STRIDE). */
+  async readIntegrate(): Promise<Float32Array> {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.intOutBuf, 0, this.intOutRead, 0, this.capacity * INTEGRATE_STRIDE * f32);
+    this.queue.submit([enc.finish()]);
+    await this.intOutRead.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(this.intOutRead.getMappedRange()).slice();
+    this.intOutRead.unmap();
     return out;
   }
 }

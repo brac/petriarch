@@ -14,7 +14,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { GpuContext } from "../gpu/gpuContext";
-import { verifyHash, verifySense, verifySteer } from "../gpu/verify";
+import { verifyHash, verifySense, verifySteer, verifyIntegrate } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
@@ -237,6 +237,21 @@ export class DevPanel {
       }),
     );
     body.appendChild(verifyT);
+
+    const verifyI = document.createElement("button");
+    verifyI.className = "dp-reset";
+    verifyI.textContent = "verify GPU integrate";
+    verifyI.addEventListener("click", () =>
+      runGpu(verifyI, async (g) => {
+        const r = await verifyIntegrate(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count}\n` +
+          `integrate diffs: ${r.mismatches}  worstAbs: ${r.worstAbs.toExponential(2)}` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyI);
     body.appendChild(gpuStatus);
   }
 }

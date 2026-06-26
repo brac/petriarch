@@ -35,7 +35,7 @@ const result = await page.evaluate(async () => {
     const { initResourceField, seedPopulation } = await import("/src/sim/init.ts");
     const { simStep } = await import("/src/sim/step.ts");
     const { GpuContext } = await import("/src/gpu/gpuContext.ts");
-    const { verifyHash, verifySense, verifySteer } = await import("/src/gpu/verify.ts");
+    const { verifyHash, verifySense, verifySteer, verifyIntegrate } = await import("/src/gpu/verify.ts");
 
     const world = createWorld(0x5eed);
     initResourceField(world);
@@ -50,6 +50,7 @@ const result = await page.evaluate(async () => {
     out.hash = await verifyHash(world, ctx);
     out.sense = await verifySense(world, ctx);
     out.steer = await verifySteer(world, ctx);
+    out.integrate = await verifyIntegrate(world, ctx);
   } catch (e) {
     out.error = String((e && e.stack) || e);
   }

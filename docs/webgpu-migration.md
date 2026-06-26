@@ -164,5 +164,15 @@ steer submit silently failed leaving the output zero-init. Lesson: a real-device
 compile is part of the test; capture `device` uncapturederror events when a pass
 returns all-zeros.
 
-**Next:** `integrate` → `metabolism`, each verified against the CPU pass on a frozen
-snapshot, then wire readback into the loop.
+**Step 5a — integrate (done, verified).** `src/gpu/shaders/integrate.wgsl.ts` ports
+sim/tierA/integrate.ts: pure per-agent physics (accelerate toward the cached steer,
+clamp to gene-derived max speed, move, reflect off bounds). Output interleaved stride 4
+[posX, posY, velX, velY]; persistent velocity buffers added. The verify feeds CPU and
+GPU the SAME steer vector (current cached steer) to isolate integrate from steer, runs
+the real CPU pass in place then restores pre-integrate state. All agents match (no
+neighbor/RNG caveats): 0 mismatches, worstAbs ~1.6e-3 (f32 noise on positions up to
+1920).
+
+**Next:** `metabolism` — the hard one (resource-cell depletion is a shared write, and
+WGSL has no atomic float → bitcast CAS-clamp loop, order-dependent under contention),
+then wire readback into the loop.

@@ -20,7 +20,8 @@ import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
 import { sense } from "../sim/tierA/sense";
 import { steer } from "../sim/tierA/steer";
-import { type GpuContext, SENSE_STRIDE, STEER_STRIDE } from "./gpuContext";
+import { integrate } from "../sim/tierA/integrate";
+import { type GpuContext, SENSE_STRIDE, STEER_STRIDE, INTEGRATE_STRIDE } from "./gpuContext";
 
 export interface HashVerifyResult {
   ok: boolean;
@@ -293,4 +294,72 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   }
 
   return { ok: mismatches === 0, count, compared, capped, mismatches, worstAbs, notes };
+}
+
+export interface IntegrateVerifyResult {
+  ok: boolean;
+  count: number;
+  /** Agents whose new pos/vel exceeded tolerance (should be 0 — pure per-agent). */
+  mismatches: number;
+  /** Largest abs divergence across posX/posY/velX/velY. */
+  worstAbs: number;
+  notes: string[];
+}
+
+// integrate is pure per-agent (no neighbors, no RNG) → all agents must match. The CPU
+// pass mutates pos/vel in place, so we run it on the live world, capture the result,
+// then restore the pre-integrate state. The GPU is fed the SAME steer vector (the
+// current cached steer) so the check isolates integrate from the steer pass.
+export async function verifyIntegrate(world: World, gpu: GpuContext): Promise<IntegrateVerifyResult> {
+  const a = world.agents;
+  const count = a.count;
+
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
+  const snapVX = a.velX.slice(0, count);
+  const snapVY = a.velY.slice(0, count);
+  const snapGenes = a.genes.slice(0, count * GENE_COUNT);
+  const snapSteer = new Float32Array(count * STEER_STRIDE);
+  for (let i = 0; i < count; i++) {
+    snapSteer[i * STEER_STRIDE + 0] = a.steerX[i]!;
+    snapSteer[i * STEER_STRIDE + 1] = a.steerY[i]!;
+  }
+
+  // CPU reference: integrate mutates pos/vel in place; capture then restore.
+  integrate(world);
+  const cX = a.posX.slice(0, count);
+  const cY = a.posY.slice(0, count);
+  const cVX = a.velX.slice(0, count);
+  const cVY = a.velY.slice(0, count);
+  a.posX.set(snapX);
+  a.posY.set(snapY);
+  a.velX.set(snapVX);
+  a.velY.set(snapVY);
+
+  // GPU: same inputs (positions, velocities, the same steer vector, genes).
+  gpu.integrateBuild(snapX, snapY, snapVX, snapVY, snapSteer, snapGenes, count);
+  const out = await gpu.readIntegrate();
+
+  let mismatches = 0;
+  let worstAbs = 0;
+  const notes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const o = i * INTEGRATE_STRIDE;
+    const dpx = Math.abs(out[o + 0]! - cX[i]!);
+    const dpy = Math.abs(out[o + 1]! - cY[i]!);
+    const dvx = Math.abs(out[o + 2]! - cVX[i]!);
+    const dvy = Math.abs(out[o + 3]! - cVY[i]!);
+    const d = Math.max(dpx, dpy, dvx, dvy);
+    if (d > worstAbs) worstAbs = d;
+    if (d > 1e-2) {
+      mismatches++;
+      if (notes.length < 8) {
+        notes.push(
+          `agent ${i} dPos=(${dpx.toExponential(2)},${dpy.toExponential(2)}) dVel=(${dvx.toExponential(2)},${dvy.toExponential(2)})`,
+        );
+      }
+    }
+  }
+
+  return { ok: mismatches === 0, count, mismatches, worstAbs, notes };
 }

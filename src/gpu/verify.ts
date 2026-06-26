@@ -16,10 +16,11 @@
 // scatter) and not checked.
 
 import type { World } from "../state/world";
-import { GENE_COUNT } from "../data/genome";
+import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
 import { sense } from "../sim/tierA/sense";
-import { type GpuContext, SENSE_STRIDE } from "./gpuContext";
+import { steer } from "../sim/tierA/steer";
+import { type GpuContext, SENSE_STRIDE, STEER_STRIDE } from "./gpuContext";
 
 export interface HashVerifyResult {
   ok: boolean;
@@ -207,4 +208,89 @@ export async function verifySense(world: World, gpu: GpuContext): Promise<SenseV
     worstRel,
     notes,
   };
+}
+
+export interface SteerVerifyResult {
+  ok: boolean;
+  count: number;
+  /** Agents compared (uncapped — their sense aggregates match, so steer can). */
+  compared: number;
+  capped: number;
+  /** Compared agents whose steer vector exceeded tolerance (should be 0). */
+  mismatches: number;
+  /** Largest abs component divergence on a compared agent's unit steer vector. */
+  worstAbs: number;
+  notes: string[];
+}
+
+// Verifies the DETERMINISTIC part of steer: wander is the GPU's own RNG domain and
+// can't match bit-for-bit, so it is neutralized (WANDER gene zeroed) on both sides.
+// The CPU reference runs the real sense+steer with wander zeroed, then live genes and
+// the RNG stream position are restored so the running sim is unperturbed.
+export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerVerifyResult> {
+  const a = world.agents;
+  const count = a.count;
+  const W = GENE.WANDER;
+
+  // Freeze inputs.
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
+  const snapGenes = a.genes.slice(0, count * GENE_COUNT);
+  const snapRes = world.resources.slice();
+  for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
+
+  const budget = world.intensity.neighborBudget;
+  const senseR2 = SIM.senseRadius * SIM.senseRadius;
+  const sepR2 = SIM.separationRadius * SIM.separationRadius;
+  const sigT = SIM.sigThreshold;
+
+  // CPU reference: zero wander in live genes, run sense+steer, capture, then restore
+  // both the wander column and the RNG stream position (steer advances rng per agent).
+  const rngState = world.rng.getState();
+  const savedWander = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    savedWander[i] = a.genes[i * GENE_COUNT + W]!;
+    a.genes[i * GENE_COUNT + W] = 0;
+  }
+  world.hash.build(a.posX, a.posY, count);
+  sense(world);
+  const cNbr = a.neighborCount.slice(0, count);
+  steer(world);
+  const cSteerX = a.steerX.slice(0, count);
+  const cSteerY = a.steerY.slice(0, count);
+  for (let i = 0; i < count; i++) a.genes[i * GENE_COUNT + W] = savedWander[i]!;
+  world.rng.setState(rngState);
+
+  // GPU: grid → sense → steer on the frozen snapshot (wander zeroed in snapGenes).
+  gpu.buildHash(snapX, snapY, count);
+  gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
+  gpu.steerBuild(snapRes, count, world.tick);
+  const gs = await gpu.readSteer();
+
+  let compared = 0;
+  let capped = 0;
+  let mismatches = 0;
+  let worstAbs = 0;
+  const notes: string[] = [];
+  for (let i = 0; i < count; i++) {
+    if (cNbr[i]! >= budget) {
+      capped++;
+      continue;
+    }
+    compared++;
+    const gx = gs[i * STEER_STRIDE + 0]!;
+    const gy = gs[i * STEER_STRIDE + 1]!;
+    const d = Math.max(Math.abs(gx - cSteerX[i]!), Math.abs(gy - cSteerY[i]!));
+    if (d > worstAbs) worstAbs = d;
+    if (d > 2e-3) {
+      mismatches++;
+      if (notes.length < 8) {
+        notes.push(
+          `agent ${i} cpu=(${cSteerX[i]!.toFixed(4)},${cSteerY[i]!.toFixed(4)}) gpu=(${gx.toFixed(4)},${gy.toFixed(4)}) d=${d.toExponential(2)}`,
+        );
+      }
+    }
+  }
+
+  return { ok: mismatches === 0, count, compared, capped, mismatches, worstAbs, notes };
 }

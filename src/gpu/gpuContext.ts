@@ -10,11 +10,16 @@
 import { acquireGpuDevice, type GpuDevice } from "./device";
 import { HASH_WGSL } from "./shaders/hash.wgsl";
 import { SENSE_WGSL } from "./shaders/sense.wgsl";
+import { STEER_WGSL } from "./shaders/steer.wgsl";
 import { GENE_COUNT } from "../data/genome";
+import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H } from "../data/capacity";
 
 const WG = 64; // workgroup size for the per-agent/per-cell kernels (must match WGSL)
 /** Interleaved sense output stride: [kinX,kinY,kinCount,sepX,sepY,avoidX,avoidY]. */
 export const SENSE_STRIDE = 7;
+/** Steer output stride: [steerX, steerY]. */
+export const STEER_STRIDE = 2;
+const RES_CELLS = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 export interface GpuGridResult {
   /** Exclusive prefix sums, length numCells+1 (a fresh copy off the GPU). */
@@ -69,6 +74,17 @@ export class GpuContext {
   private readonly senseParamsHost = new ArrayBuffer(32);
   private readonly senseParamsU32 = new Uint32Array(this.senseParamsHost);
   private readonly senseParamsF32 = new Float32Array(this.senseParamsHost);
+
+  // --- steer pass (reads senseOut + genes + resource field; writes steer vectors) ---
+  private readonly resourcesBuf: GPUBuffer;
+  private readonly steerParamsBuf: GPUBuffer;
+  private readonly steerOutBuf: GPUBuffer;
+  private readonly steerOutRead: GPUBuffer;
+  private readonly steerBindGroup: GPUBindGroup;
+  private readonly pipeSteer: GPUComputePipeline;
+  private readonly steerParamsHost = new ArrayBuffer(32);
+  private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
+  private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
 
   // Reused host-side scratch for the 32-byte Params upload (zero per-call alloc).
   private readonly paramsHost = new ArrayBuffer(32);
@@ -165,6 +181,41 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.cellStartBuf } },
         { binding: 5, resource: { buffer: this.itemsBuf } },
         { binding: 6, resource: { buffer: this.senseOutBuf } },
+      ],
+    });
+
+    // --- steer pass: consumes senseOut + genes (resident) + the resource field ---
+    this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.steerParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC);
+    this.steerOutRead = buf(capacity * STEER_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+
+    const steerModule = dev.createShaderModule({ code: STEER_WGSL });
+    const steerLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+    this.pipeSteer = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [steerLayout] }),
+      compute: { module: steerModule, entryPoint: "steerMain" },
+    });
+    this.steerBindGroup = dev.createBindGroup({
+      layout: steerLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.steerParamsBuf } },
+        { binding: 1, resource: { buffer: this.posXBuf } },
+        { binding: 2, resource: { buffer: this.posYBuf } },
+        { binding: 3, resource: { buffer: this.genesBuf } },
+        { binding: 4, resource: { buffer: this.senseOutBuf } },
+        { binding: 5, resource: { buffer: this.resourcesBuf } },
+        { binding: 6, resource: { buffer: this.steerOutBuf } },
       ],
     });
   }
@@ -273,6 +324,45 @@ export class GpuContext {
     await this.senseOutRead.mapAsync(GPUMapMode.READ);
     const out = new Float32Array(this.senseOutRead.getMappedRange()).slice();
     this.senseOutRead.unmap();
+    return out;
+  }
+
+  /**
+   * Run the steer pass. Requires the grid + sense to have run on the same snapshot
+   * (positions, genes, senseOut resident). Uploads the resource field + params and
+   * dispatches; output read with readSteer(). `seed` drives the per-agent wander RNG
+   * (the GPU's own determinism domain — pass the sim tick).
+   */
+  steerBuild(resources: Float32Array, count: number, seed: number): void {
+    this.steerParamsU32[0] = count;
+    this.steerParamsU32[1] = RESOURCE_GRID_W;
+    this.steerParamsU32[2] = RESOURCE_GRID_H;
+    this.steerParamsU32[3] = seed >>> 0;
+    this.steerParamsF32[4] = RES_CELL_W;
+    this.steerParamsF32[5] = RES_CELL_H;
+    this.steerParamsF32[6] = 0;
+    this.steerParamsF32[7] = 0;
+    this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
+    this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+
+    const enc = this.device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setBindGroup(0, this.steerBindGroup);
+    pass.setPipeline(this.pipeSteer);
+    pass.dispatchWorkgroups(Math.max(1, Math.ceil(count / WG)));
+    pass.end();
+    this.queue.submit([enc.finish()]);
+  }
+
+  /** Read the interleaved steer output back (length capacity*STEER_STRIDE copy). */
+  async readSteer(): Promise<Float32Array> {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.steerOutBuf, 0, this.steerOutRead, 0, this.capacity * STEER_STRIDE * f32);
+    this.queue.submit([enc.finish()]);
+    await this.steerOutRead.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(this.steerOutRead.getMappedRange()).slice();
+    this.steerOutRead.unmap();
     return out;
   }
 }

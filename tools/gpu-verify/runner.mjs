@@ -35,7 +35,7 @@ const result = await page.evaluate(async () => {
     const { initResourceField, seedPopulation } = await import("/src/sim/init.ts");
     const { simStep } = await import("/src/sim/step.ts");
     const { GpuContext } = await import("/src/gpu/gpuContext.ts");
-    const { verifyHash, verifySense } = await import("/src/gpu/verify.ts");
+    const { verifyHash, verifySense, verifySteer } = await import("/src/gpu/verify.ts");
 
     const world = createWorld(0x5eed);
     initResourceField(world);
@@ -45,8 +45,11 @@ const result = await page.evaluate(async () => {
 
     const ctx = await GpuContext.create(cap.HASH_CELL_SIZE, cap.WORLD_W, cap.WORLD_H, cap.MAX_AGENTS);
     if (!ctx) { out.error = "GpuContext.create returned null (no WebGPU device)"; return out; }
+    out.gpuErrors = [];
+    ctx.device.addEventListener("uncapturederror", (e) => { out.gpuErrors.push(String(e.error && e.error.message || e.error)); });
     out.hash = await verifyHash(world, ctx);
     out.sense = await verifySense(world, ctx);
+    out.steer = await verifySteer(world, ctx);
   } catch (e) {
     out.error = String((e && e.stack) || e);
   }

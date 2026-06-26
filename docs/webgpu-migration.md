@@ -146,5 +146,23 @@ for conflict to reuse. When sense moves to the GPU permanently, conflict (Tier B
 will need its own neighbor source (its own hash query, or a readback) — a wiring
 decision for the readback step, not this verify.
 
-**Next:** `steer` → `integrate` → `metabolism`, each verified against the CPU pass on a
-frozen snapshot before wiring readback into the loop.
+**Step 4b — steer (done, verified).** `src/gpu/shaders/steer.wgsl.ts` ports
+sim/tierA/steer.ts: reads the resident `senseOut` aggregates + genes + the resource
+field, blends cohesion/separation/threat/resource-gradient/wander into one unit vector
+(output stride 2). The grid→sense→steer chain now stays GPU-resident (steer reads
+senseOut directly). Wander is the GPU's own determinism domain (a per-agent hash RNG
+seeded by index + a per-frame seed) — it cannot match the CPU's single shared
+mulberry32 advanced in index order. The verify neutralizes it (WANDER gene zeroed on
+both sides; CPU genes + RNG state restored after) and checks the deterministic blend:
+0 mismatches, worstAbs ~3e-4 over uncapped agents.
+
+Verification is now **self-serve and headless** via `tools/gpu-verify` (Playwright +
+Chrome SwiftShader). It caught a bug the Node algorithm-mirror never could: WGSL
+refuses to infer precedence between `*` and `^` and requires explicit parens
+(`(i * k) ^ seed`) — the shader failed to compile, the pipeline was invalid, and every
+steer submit silently failed leaving the output zero-init. Lesson: a real-device WGSL
+compile is part of the test; capture `device` uncapturederror events when a pass
+returns all-zeros.
+
+**Next:** `integrate` → `metabolism`, each verified against the CPU pass on a frozen
+snapshot, then wire readback into the loop.

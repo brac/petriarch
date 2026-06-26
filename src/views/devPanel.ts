@@ -14,7 +14,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { GpuContext } from "../gpu/gpuContext";
-import { verifyHash, verifySense } from "../gpu/verify";
+import { verifyHash, verifySense, verifySteer } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
@@ -222,6 +222,21 @@ export class DevPanel {
       }),
     );
     body.appendChild(verifyS);
+
+    const verifyT = document.createElement("button");
+    verifyT.className = "dp-reset";
+    verifyT.textContent = "verify GPU steer (max intensity)";
+    verifyT.addEventListener("click", () =>
+      runGpu(verifyT, async (g) => {
+        const r = await verifySteer(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} compared=${r.compared} capped=${r.capped}\n` +
+          `steer diffs: ${r.mismatches}  worstAbs: ${r.worstAbs.toExponential(2)}` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyT);
     body.appendChild(gpuStatus);
   }
 }

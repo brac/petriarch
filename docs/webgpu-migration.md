@@ -236,10 +236,30 @@ wired into a runnable loop.**
 - The GPU pump feeds its own step-ms / fps into the perf overlay (the stopped CPU loop's
   timing would otherwise be stale), so GPU mode is profilable headful.
 
-Still on the table if the GPU walls: genes/state are re-uploaded wholesale each tick —
-could upload only birth deltas; and the agent pool round-trips because Tier B
-(conflict/reproduce/death) owns the swap-remove/spawn structure on CPU — keeping the pool
-GPU-resident and applying Tier B's structural ops to GPU buffers would remove the
-round-trip but is a larger redesign. NOTE: at high N the wall is likely **CPU Tier B**
-(conflict's per-agent neighbor queries + hash build + O(n) reproduce/death), not the GPU
-or the sync — profile on real hardware to confirm before optimizing further.
+- **One-frame-latency pipeline** (`GpuPipeline` in gpuSim.ts): submit a tick's Tier A,
+  then apply the PREVIOUS tick's readback (it has had a frame to finish on the GPU, so
+  the `await` doesn't stall) and run that tick's Tier B. The op sequence is identical to
+  the non-pipelined step — only the readback timing moves — so it fully hides the GPU
+  sync at ~1 tick/frame. At higher sim-speed the ticks are sequentially dependent through
+  CPU Tier B (each tick's GPU input is the prior tick's Tier B output), so only the last
+  tick's readback per frame overlaps render; max-speed stress gets a smaller cut. The
+  rendered world lags the latest GPU submit by one tick (imperceptible).
+
+**Profiling finding (3090, 20k agents, max everything):** the wall was the per-tick GPU
+sync (~4ms/tick `mapAsync`), NOT compute (µs) and NOT Tier B (the steady-state breakdown
+is conflict ~0.3 / reproduce ~0 / death ~0.1 / hash ~0.2 ms/tick — the earlier "Tier B
+71ms" was the population-explosion transient). resources() is a flat 3600-cell loop,
+trivial.
+
+**The GPU path is run-to-run NONDETERMINISTIC** (verified: same seed, two runs → 863 vs
+861 agents). The `scatter` and metabolism CAS atomics execute in thread-dependent order,
+so the GPU is a seeded-but-not-reproducible determinism domain — the CPU path stays the
+golden reference for reproducibility (snapshot/restore, headless). Pipeline correctness
+is therefore "statistically equivalent + stable," not bit-identical.
+
+Still on the table if max-speed throughput matters: the per-tick sync is one `mapAsync`
+needed because CPU Tier B consumes each tick's result; to read back once per FRAME
+instead of per tick you'd run several GPU ticks between Tier B passes (batching Tier B —
+a behavior change) or move Tier B onto the GPU (a redesign against the Tier A/B split).
+Upload could also shrink (genes are re-sent each tick though they only change on
+births/deaths — delta-upload them). Profile-driven; revisit if the sync actually hurts.

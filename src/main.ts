@@ -15,7 +15,7 @@ import { DevPanel } from "./views/devPanel";
 import { bloom, hazard, smite } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
 import { GpuContext } from "./gpu/gpuContext";
-import { simStepGpu, gpuTiming } from "./gpu/gpuSim";
+import { GpuPipeline, gpuTiming } from "./gpu/gpuSim";
 
 // Fixed seed → reproducible runs (debugging, snapshot/restore, headless). Override
 // with ?seed=N in the URL.
@@ -78,19 +78,22 @@ function main(): void {
   // won't track the CPU run tick-for-tick — toggle to compare emergent behavior.
   let gpuMode = false;
   let gpu: GpuContext | null = null;
+  let pipeline: GpuPipeline | null = null;
   let gpuTried = false;
   let pumpScheduled = false;
   let lastFrameT = 0;
 
-  // Drive the GPU sim + feed timing into the existing perf overlay (loop.* fields), so
-  // the overlay reports GPU step cost / fps instead of the stopped CPU loop's stale ones.
+  // Drive the pipelined GPU sim + feed timing into the perf overlay. On exit it drains
+  // any in-flight tick (so the readback buffer isn't left mapped) and hands back to CPU.
   const gpuFrame = (now: number): void => {
-    if (!gpuMode || !gpu) {
-      pumpScheduled = false;
-      return;
-    }
-    const dev = gpu;
     void (async () => {
+      if (!gpuMode || !pipeline) {
+        if (pipeline) await pipeline.flush(world);
+        pumpScheduled = false;
+        loop.start();
+        return;
+      }
+      const pipe = pipeline;
       const speed = Math.max(0, Math.round(loop.simSpeed)); // simSpeed 0 → paused (render only)
       const t0 = performance.now();
       let gpuMs = 0;
@@ -100,7 +103,7 @@ function main(): void {
       let dMs = 0;
       let hMs = 0;
       for (let i = 0; i < speed; i++) {
-        await simStepGpu(world, dev);
+        await pipe.tick(world);
         gpuMs += gpuTiming.gpuMs;
         tierBMs += gpuTiming.tierBMs;
         cMs += gpuTiming.conflictMs;
@@ -132,8 +135,9 @@ function main(): void {
       if (!gpu && !gpuTried) {
         gpuTried = true;
         gpu = await GpuContext.create(HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS);
+        if (gpu) pipeline = new GpuPipeline(gpu);
       }
-      if (!gpu) {
+      if (!gpu || !pipeline) {
         // eslint-disable-next-line no-console
         console.warn("Petriarch: WebGPU unavailable — staying on CPU");
         return;
@@ -141,17 +145,16 @@ function main(): void {
       gpuMode = true;
       loop.stop();
       // eslint-disable-next-line no-console
-      console.info("Petriarch: GPU sim ON");
+      console.info("Petriarch: GPU sim ON (pipelined)");
       if (!pumpScheduled) {
         pumpScheduled = true;
         lastFrameT = 0;
         requestAnimationFrame(gpuFrame);
       }
     } else {
-      gpuMode = false;
+      gpuMode = false; // pump drains in-flight + restarts the CPU loop next frame
       // eslint-disable-next-line no-console
       console.info("Petriarch: GPU sim OFF (CPU)");
-      loop.start();
     }
   };
 

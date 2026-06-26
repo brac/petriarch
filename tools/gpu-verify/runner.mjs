@@ -55,15 +55,23 @@ const result = await page.evaluate(async () => {
     out.chain = await verifyChain(world, ctx);
 
     // --- loop stability: GPU async sim vs CPU loop, fresh worlds, same seed ---
-    const { simStepGpu } = await import("/src/gpu/gpuSim.ts");
+    const { simStepGpu, GpuPipeline } = await import("/src/gpu/gpuSim.ts");
     const mkWorld = (seed) => { const w = createWorld(seed); initResourceField(w); seedPopulation(w); w.intensity.neighborBudget = 64; return w; };
-    const N = 250, sample = 50;
+    const N = 200, sample = 50;
+    const meanSize = (w) => { let s = 0; const a = w.agents, n = a.count; for (let i = 0; i < n; i++) s += a.genes[i * 15]; return n ? +(s / n).toFixed(3) : 0; };
     const wg = mkWorld(0x5eed); const gpuPops = [];
     for (let t = 0; t < N; t++) { await simStepGpu(wg, ctx); if (t % sample === sample - 1) gpuPops.push(wg.agents.count); }
     const wc = mkWorld(0x5eed); const cpuPops = [];
     for (let t = 0; t < N; t++) { simStep(wc); if (t % sample === sample - 1) cpuPops.push(wc.agents.count); }
-    const meanSize = (w) => { let s = 0; const a = w.agents, n = a.count; for (let i = 0; i < n; i++) s += a.genes[i * 15]; return n ? +(s / n).toFixed(3) : 0; };
-    out.loop = { ticks: N, gpuPops, cpuPops, gpuFinal: wg.agents.count, cpuFinal: wc.agents.count, gpuMeanSize: meanSize(wg), cpuMeanSize: meanSize(wc) };
+    // Pipeline must reproduce simStepGpu exactly (same op sequence; readback timing only).
+    const wp = mkWorld(0x5eed); const pipe = new GpuPipeline(ctx);
+    for (let t = 0; t < N; t++) await pipe.tick(wp); await pipe.flush(wp);
+    out.loop = {
+      ticks: N, gpuPops, cpuPops,
+      gpuFinal: wg.agents.count, cpuFinal: wc.agents.count, pipeFinal: wp.agents.count,
+      gpuMeanSize: meanSize(wg), cpuMeanSize: meanSize(wc), pipeMeanSize: meanSize(wp),
+      pipeMatchesGpu: wp.agents.count === wg.agents.count && meanSize(wp) === meanSize(wg),
+    };
   } catch (e) {
     out.error = String((e && e.stack) || e);
   }

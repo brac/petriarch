@@ -84,3 +84,81 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   gpuTiming.deathMs = tDeath - tReproduce;
   gpuTiming.tierBMs = tAfterRes - t0 + (tDeath - tAfterGpu); // resources + all of Tier B
 }
+
+// One-frame-latency pipeline: submit a tick's GPU Tier A, then apply the PREVIOUS
+// tick's result (its readback has had a frame to finish on the GPU, so the await
+// doesn't stall) and run that tick's Tier B. Fully hides the GPU sync at ~1 tick/frame;
+// at higher sim-speed the ticks are sequentially dependent through CPU Tier B, so only
+// the last tick's readback per frame overlaps render. The rendered world lags the
+// latest GPU submit by one tick (imperceptible).
+export class GpuPipeline {
+  private inflightCount: number | null = null;
+  private pendingMap: Promise<undefined> | null = null;
+
+  constructor(private gpu: GpuContext) {}
+
+  /** Apply the in-flight tick's readback to the pools and run its Tier B. */
+  private finalize(world: World): void {
+    const a = world.agents;
+    this.gpu.finishReadback(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, world.resources, this.inflightCount!);
+    const tHash0 = performance.now();
+    world.hash.build(a.posX, a.posY, a.count);
+    const tHash = performance.now();
+    conflict(world, false);
+    const tConflict = performance.now();
+    reproduce(world);
+    const tReproduce = performance.now();
+    death(world);
+    gpuTiming.hashMs = tHash - tHash0;
+    gpuTiming.conflictMs = tConflict - tHash;
+    gpuTiming.reproduceMs = tReproduce - tConflict;
+    gpuTiming.deathMs = performance.now() - tReproduce;
+    gpuTiming.tierBMs = performance.now() - tHash0;
+    this.inflightCount = null;
+    this.pendingMap = null;
+  }
+
+  /** Advance one tick (pipelined). Call once per frame for a fully-hidden sync. */
+  async tick(world: World): Promise<void> {
+    const a = world.agents;
+
+    let stall = 0;
+    if (this.pendingMap) {
+      const s0 = performance.now();
+      await this.pendingMap; // resolved already if a frame elapsed → no stall
+      stall = performance.now() - s0;
+      this.finalize(world);
+    }
+
+    // Start the next tick on the freshly-finalized pools.
+    const u0 = performance.now();
+    world.tick++;
+    world.time += TICK_DT;
+    resources(world);
+    const count = a.count;
+    if (count > 0) {
+      this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);
+      this.gpu.uploadResources(world.resources);
+      const senseP = {
+        budget: world.intensity.neighborBudget,
+        senseR2: SIM.senseRadius * SIM.senseRadius,
+        sepR2: SIM.separationRadius * SIM.separationRadius,
+        sigT: SIM.sigThreshold,
+      };
+      const hz = world.hazard;
+      const hazP = { active: hz.life > 0, x: hz.x, y: hz.y, r2: hz.r * hz.r };
+      this.gpu.runTierA(count, true, world.tick, senseP, hazP);
+      this.pendingMap = this.gpu.submitReadback(count);
+      this.inflightCount = count;
+    }
+    gpuTiming.gpuMs = stall + (performance.now() - u0); // sync stall + submit/upload
+  }
+
+  /** Drain any in-flight tick (call when leaving GPU mode so the buffer isn't left mapped). */
+  async flush(world: World): Promise<void> {
+    if (this.pendingMap) {
+      await this.pendingMap;
+      this.finalize(world);
+    }
+  }
+}

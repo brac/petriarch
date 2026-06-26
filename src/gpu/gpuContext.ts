@@ -802,6 +802,16 @@ export class GpuContext {
     resources: Float32Array,
     count: number,
   ): Promise<void> {
+    await this.submitReadback(count);
+    this.finishReadback(posX, posY, velX, velY, energy, age, resources, count);
+  }
+
+  // --- pipelined readback (submit now, await + apply LATER) ------------------------
+  // Splitting downloadAll lets the loop submit a tick's readback and await it a frame
+  // later, by which time a discrete GPU has finished it → the await doesn't stall.
+
+  /** Encode + submit the combined readback copy; return the (un-awaited) map promise. */
+  submitReadback(count: number): Promise<undefined> {
     const f32 = Float32Array.BYTES_PER_ELEMENT;
     const cap = this.capacity;
     const enc = this.device.createCommandEncoder();
@@ -816,8 +826,21 @@ export class GpuContext {
     }
     enc.copyBufferToBuffer(this.resourcesBuf, 0, this.combinedRead, 6 * cap * f32, RES_CELLS * f32);
     this.queue.submit([enc.finish()]);
+    return this.combinedRead.mapAsync(GPUMapMode.READ);
+  }
 
-    await this.combinedRead.mapAsync(GPUMapMode.READ);
+  /** Copy the mapped combined buffer into the pools and unmap. Map must be resolved. */
+  finishReadback(
+    posX: Float32Array,
+    posY: Float32Array,
+    velX: Float32Array,
+    velY: Float32Array,
+    energy: Float32Array,
+    age: Float32Array,
+    resources: Float32Array,
+    count: number,
+  ): void {
+    const cap = this.capacity;
     const r = new Float32Array(this.combinedRead.getMappedRange());
     if (count > 0) {
       posX.set(r.subarray(0 * cap, 0 * cap + count));

@@ -7,7 +7,8 @@
 // Layers (bottom→top): dark field → resource glow (one ParticleContainer of cell
 // quads) → kin-cohesion edges (a lit mesh) → agent nodes (one batched
 // ParticleContainer) → conflict sparks (pooled) → border. Node hue = signature,
-// size = SIZE gene, brightness = energy. Edges/sparks are gated/capped so the skin
+// size = SIZE gene, brightness/alpha = energy; morphology rides saturation (RESILIENCE)
+// and lightness (EFFICIENCY) — see nodeTint. Edges/sparks are gated/capped so the skin
 // stays under render budget (docs/simulation-systems.md §Rendering).
 
 import { Application, Container, Graphics, Particle, ParticleContainer } from "pixi.js";
@@ -318,13 +319,19 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-// Signature → hue → packed RGB. Phase-1: SIG_A drives hue, SIG_B/C nudge it so all
-// three tag dimensions show as colour drift (docs/genome.md).
+// Signature → hue → packed RGB. SIG_A drives hue, SIG_B/C nudge it so all three tag
+// dimensions show as colour drift (docs/genome.md). Morphology rides the two free
+// perceptual channels so it reads WITHOUT disturbing hue=lineage: RESILIENCE
+// desaturates (armor looks metallic/muted), EFFICIENCY lightens (efficient bodies look
+// glossier/brighter). So a tank reads as a muted node, an efficient forager as a bright
+// one — body type at a glance, on top of lineage hue, size (SIZE) and energy (alpha).
 function nodeTint(genes: Float32Array, i: number): number {
   const bi = i * GENE_COUNT;
   let h = genes[bi + GENE.SIG_A]! + 0.15 * (genes[bi + GENE.SIG_B]! - genes[bi + GENE.SIG_C]!);
   h = ((h % 1) + 1) % 1;
-  return hslToRgb(h, 0.85, 0.55);
+  const s = 0.85 - 0.55 * genes[bi + GENE.RESILIENCE]!; // armor → metallic/desaturated
+  const l = 0.55 + 0.2 * genes[bi + GENE.EFFICIENCY]!; // efficient → glossier/brighter
+  return hslToRgb(h, s, l);
 }
 
 function hslToRgb(h: number, s: number, l: number): number {

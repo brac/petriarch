@@ -65,7 +65,16 @@ Offspring produced per reproduction event. High = many offspring splitting the p
 ### `MUTABILITY` (self-mutation rate) — *chosen body gene*
 The per-agent mutation rate this agent applies to *its own* offspring. **A gene that controls evolution itself.** High-mutability lineages adapt fast to player perturbation but throw many nonviable offspring (wasted energy). Low-mutability lineages breed true and stable but adapt slowly. This should self-tune: under heavy player meddling, high-mutability lineages should win; in stable worlds, low-mutability should dominate. The most artificial-life-research gene of the set and the most likely to produce a genuinely surprising result. Implementation note: mutation reads `genes[i*GENE_COUNT + MUTABILITY]` instead of a global constant — a small change to the reproduce system, no architectural impact. `MUTABILITY` mutates itself at a small floor rate so it can never lock to zero.
 
-> **Future body genes (documented, not implemented — stubs).** `RESILIENCE` (armor: less conflict/hazard damage, higher move cost — trades vs `METABOLIC_RATE`), `EFFICIENCY` (digestion: more energy per resource but slower — trades vs `METABOLIC_RATE`), `SENSORY_RANGE` (perception radius: finds food/reads social field early, costs energy per tick and enlarges the spatial-hash query — trades vs base metabolism). Add later by appending indices; the morphology work in Milestone 2 is the natural home for these.
+> **Morphology body genes (Milestone 2).** `RESILIENCE` (index 15, **implemented**) —
+> armor: less conflict loser-damage + hazard drain, paid for by heavier movement; holds
+> a frequency-dependent tradeoff (armored vs unarmored body types coexist). `EFFICIENCY`
+> (index 16, **implemented**) — digestion: more energy per *unit* resource (depletes less
+> of the field for the same energy — a sustainable niche), paid for by lower max speed;
+> raises carrying capacity as it spreads. Tunables in `src/data/morphology.ts`; effects
+> live in metabolism (intake/move/hazard), integrate (speed), conflict (damage). Visual:
+> RESILIENCE desaturates the node (metallic), EFFICIENCY lightens it (`netRenderer`).
+> Still a stub: `SENSORY_RANGE` (perception radius — costs energy per tick and enlarges
+> the spatial-hash query, so it needs a variable-size neighbor query; deferred).
 
 ---
 

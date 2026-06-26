@@ -206,12 +206,25 @@ like the CPU order. `verifyChain` runs the full resident chain vs the full CPU s
 standalone integrate — chaining adds no error), age 0, energy 0 (uncontended). The
 per-pass `*Build` verifies still pass after the refactor.
 
-**Step 6b — wire it into the loop (the remaining piece).** Design fork: the
-fixed-timestep `Loop.update()` is SYNCHRONOUS (up to 8 ticks/frame in a while-loop),
-but GPU readback (`downloadState`) is ASYNC. So a GPU sim step can't run inside the sync
-loop as-is. Options: (a) a separate async pump driving one awaited GPU tick per rAF
-frame (simplest; loses fixed-timestep multi-tick fast-forward, fine for the GPU
-domain); (b) one-frame-latency pipelining (submit tick N, read back tick N-1, no stall).
-Also still open: conflict (Tier B) reuses sense's CPU neighbor cache — once sense is
-GPU-resident it needs its own neighbor source (its own hash query on the read-back
-positions). Then crank the slider, profile, raise MAX_AGENTS.
+**Step 6b — wired into the loop (done, verified).** `src/gpu/gpuSim.ts::simStepGpu` is
+the GPU-backed tick: resources (CPU) → uploadState/uploadResources → runTierA (resident
+Tier A) → downloadState/downloadResources → conflict/reproduce/death (CPU). Driven by a
+separate **async pump** in main.ts (chosen over one-frame pipelining): press **`g`** to
+stop the fixed-timestep loop and run one (or `simSpeed`) awaited GPU tick per rAF frame,
+then render. Two correctness-first simplifications: FULL state re-upload+readback each
+tick (Tier B mutates the pool on CPU), and ALWAYS think (the CPU think-gate is a CPU-only
+perf trick; always-think also keeps the resident steer cache aligned across CPU
+swap-remove without mirroring swaps to the GPU). conflict does its OWN hash query (no GPU
+neighbor cache).
+
+Verified headless (tools/gpu-verify): 250 GPU ticks run with gpuErrors empty and the
+population/evolution stay statistically equivalent to the CPU loop from the same seed —
+GPU pop 813 / meanSIZE 1.596 vs CPU pop 760 / meanSIZE 1.623 (same equilibrium + regime,
+differing only in chaotic detail = the GPU determinism domain).
+
+**The Tier A migration is functionally complete: every pass on the GPU, resident, and
+wired into a runnable loop.** Remaining is optimization, not correctness: this full-sync
+software-SwiftShader path is slower than CPU at small N — the win needs a real GPU and
+reduced per-tick sync (upload only birth deltas, read back only what Tier B needs, keep
+the agent pool GPU-resident across Tier B). Then crank intensity, profile, raise
+MAX_AGENTS.

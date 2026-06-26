@@ -5,7 +5,7 @@
 
 import { Loop } from "./core/loop";
 import { createWorld, type World } from "./state/world";
-import { WORLD_W, WORLD_H } from "./data/capacity";
+import { WORLD_W, WORLD_H, HASH_CELL_SIZE, MAX_AGENTS } from "./data/capacity";
 import { initResourceField, seedPopulation } from "./sim/init";
 import { simStep } from "./sim/step";
 import { NetRenderer } from "./views/netRenderer";
@@ -14,6 +14,8 @@ import { Hud } from "./views/hud";
 import { DevPanel } from "./views/devPanel";
 import { bloom, hazard, smite } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
+import { GpuContext } from "./gpu/gpuContext";
+import { simStepGpu } from "./gpu/gpuSim";
 
 // Fixed seed → reproducible runs (debugging, snapshot/restore, headless). Override
 // with ?seed=N in the URL.
@@ -68,6 +70,60 @@ function main(): void {
 
   // Hud's sim-speed slider drives the loop; wire it now that the loop exists.
   hud.attachLoop(loop);
+
+  // --- GPU sim toggle (press 'g') ---------------------------------------------------
+  // The fixed-timestep loop's update() is synchronous; GPU readback is async. So GPU
+  // mode stops the CPU loop and runs a separate async pump: one (or simSpeed) awaited
+  // GPU ticks per rAF frame, then render. The GPU is its own determinism domain, so it
+  // won't track the CPU run tick-for-tick — toggle to compare emergent behavior.
+  let gpuMode = false;
+  let gpu: GpuContext | null = null;
+  let gpuTried = false;
+  let pumpScheduled = false;
+
+  const gpuFrame = async (): Promise<void> => {
+    if (!gpuMode || !gpu) {
+      pumpScheduled = false;
+      return;
+    }
+    const speed = Math.max(0, Math.round(loop.simSpeed)); // simSpeed 0 → paused (render only)
+    for (let i = 0; i < speed; i++) await simStepGpu(world, gpu);
+    renderer.render(world, 0);
+    perf.update(loop, world.agents.count);
+    hud.update();
+    requestAnimationFrame(() => void gpuFrame());
+  };
+
+  const toggleGpu = async (): Promise<void> => {
+    if (!gpuMode) {
+      if (!gpu && !gpuTried) {
+        gpuTried = true;
+        gpu = await GpuContext.create(HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS);
+      }
+      if (!gpu) {
+        // eslint-disable-next-line no-console
+        console.warn("Petriarch: WebGPU unavailable — staying on CPU");
+        return;
+      }
+      gpuMode = true;
+      loop.stop();
+      // eslint-disable-next-line no-console
+      console.info("Petriarch: GPU sim ON");
+      if (!pumpScheduled) {
+        pumpScheduled = true;
+        void gpuFrame();
+      }
+    } else {
+      gpuMode = false;
+      // eslint-disable-next-line no-console
+      console.info("Petriarch: GPU sim OFF (CPU)");
+      loop.start();
+    }
+  };
+
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "g" || e.key === "G") void toggleGpu();
+  });
 
   void renderer.init(appEl).then(() => {
     wireGodTools(appEl, renderer, world);

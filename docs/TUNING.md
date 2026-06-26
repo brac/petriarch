@@ -5,9 +5,11 @@ watching Milestone 1 run headful. **Numbers in `src/data/*` are first-pass.** Th
 two levers that matter most (docs/genome.md): base mutation scale, and resource
 regrowth + distribution.
 
-The natural home for the *controls* is the **Tooling pass** (`src/views/devPanel.ts`
-— currently a stub): expose these as live dev sliders so tuning becomes experiment,
-not edit-refresh. Until then, edit the data file and refresh.
+**Live dev panel (built):** the top-right ⚙ DEV panel (`src/views/devPanel.ts`) has
+sliders for the live-effective tunables (regrowth, drain, intake, speed, mutation,
+repro, conflict) — drag to tune in real time. Init-only params (cellCapacity,
+clumping, startFrac) and seed-restart aren't there yet; they need a world rebuild
+(coming with snapshot/restore). For those, edit the data file and refresh.
 
 **Measured runs (built):** `npm run headless` fast-forwards the sim with no render
 and prints per-generation pop / lineage / births / deaths / gene mean±sd — use it to

@@ -72,11 +72,72 @@
         color: #00ffcc;
         font-weight: 600;
       }
+      /* Dev panel — live tunables (top-right, collapsible). */
+      #devpanel {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        z-index: 10;
+        width: 232px;
+        max-height: 80vh;
+        overflow-y: auto;
+        font-size: 11px;
+        color: #b8f7e8;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid rgba(0, 255, 204, 0.22);
+        border-radius: 5px;
+        user-select: none;
+      }
+      #devpanel .dp-header {
+        padding: 5px 8px;
+        color: #00ffcc;
+        cursor: pointer;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid rgba(0, 255, 204, 0.18);
+      }
+      #devpanel .dp-body {
+        padding: 4px 8px 8px;
+      }
+      #devpanel .dp-group {
+        margin: 7px 0 2px;
+        color: #5cf2ff;
+        opacity: 0.85;
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+      #devpanel .dp-row {
+        display: grid;
+        grid-template-columns: 78px 1fr 38px;
+        align-items: center;
+        gap: 6px;
+        padding: 1px 0;
+      }
+      #devpanel .dp-row input[type="range"] {
+        width: 100%;
+        accent-color: #00ffcc;
+      }
+      #devpanel .dp-val {
+        text-align: right;
+        color: #00ffcc;
+      }
+      #devpanel .dp-reset {
+        margin-top: 8px;
+        width: 100%;
+        padding: 3px;
+        font: inherit;
+        color: #b8f7e8;
+        background: rgba(0, 255, 204, 0.1);
+        border: 1px solid rgba(0, 255, 204, 0.25);
+        border-radius: 4px;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
     <div id="perf"></div>
+    <div id="devpanel"></div>
     <div id="controls">
       <label>intensity <input id="intensity" type="range" min="0" max="1" step="0.01" value="1" /></label>
       <label>sim&nbsp;speed <input id="simspd" type="range" min="0" max="8" step="0.1" value="1" /></label>

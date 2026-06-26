@@ -44,4 +44,4 @@ export const SIM = {
   baseMutationScale: 0.08,
   /** floor so MUTABILITY can drift but never lock evolution to zero. */
   mutabilityFloor: 0.05,
-} as const;
+}; // mutable: the dev panel tunes these live

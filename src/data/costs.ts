@@ -22,4 +22,4 @@ export const COSTS = {
   intakeSizeExp: 1.0,
   /** energy drained per tick to an agent inside an active hazard zone. */
   hazardDrain: 1.5,
-} as const;
+}; // mutable: the dev panel tunes these live

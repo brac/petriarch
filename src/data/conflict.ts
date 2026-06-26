@@ -18,4 +18,4 @@ export const CONFLICT = {
   stealFrac: 0.8,
   /** ticks between an agent's eligible fights (keeps a frontier a grind, not a vaporize). */
   cooldownTicks: 18,
-} as const;
+}; // mutable: the dev panel tunes these live

@@ -11,6 +11,7 @@ import { simStep } from "./sim/step";
 import { NetRenderer } from "./views/netRenderer";
 import { PerfOverlay } from "./views/perfOverlay";
 import { Hud } from "./views/hud";
+import { DevPanel } from "./views/devPanel";
 import { bloom, hazard, smite } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
 
@@ -48,6 +49,9 @@ function main(): void {
     simSpeed: simSpeedEl,
     pop: popEl,
   });
+
+  const devEl = document.getElementById("devpanel");
+  if (devEl) new DevPanel(devEl);
 
   // One fixed tick: the canonical sim order (docs/simulation-systems.md §Tier map),
   // with thinking (sense+steer) decoupled from acting via the think timer.

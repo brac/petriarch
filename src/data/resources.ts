@@ -33,4 +33,4 @@ export const RESOURCES = {
   // --- god: smite ---
   /** radius (px) of a smite. */
   smiteRadius: 90,
-} as const;
+}; // mutable: the dev panel tunes these live

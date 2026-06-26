@@ -65,7 +65,12 @@ export function metabolism(world: World): void {
       const maxE = size * SIM.maxEnergyPerSize;
       const room = maxE - e;
       if (room > 0) {
-        let gain: number = COSTS.intakeRate;
+        // Bigger mouths harvest faster (SIZE^intakeSizeExp), so big bodies can
+        // actually accumulate energy fast enough to breed and to hold rich patches.
+        let gain: number =
+          COSTS.intakeSizeExp === 1
+            ? COSTS.intakeRate * size
+            : COSTS.intakeRate * Math.pow(size, COSTS.intakeSizeExp);
         if (gain > avail) gain = avail;
         if (gain > room) gain = room;
         e += gain;

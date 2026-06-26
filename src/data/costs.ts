@@ -14,8 +14,12 @@ export const COSTS = {
   moveCost: 0.0009,
   /** extra drain per tick once past LIFESPAN's senescence onset (80%). */
   senescenceDrain: 0.25,
-  /** max energy pulled from a resource cell per tick. */
+  /** max energy pulled from a resource cell per tick (before size scaling). */
   intakeRate: 1.1,
+  /** intake scales as SIZE^intakeSizeExp — bigger mouths harvest a rich patch
+   * faster, so big bodies can actually accumulate energy to breed (and to dominate
+   * rich clumps). 0 = flat (old behavior), 1 = linear in size. */
+  intakeSizeExp: 1.0,
   /** energy drained per tick to an agent inside an active hazard zone. */
   hazardDrain: 1.5,
 } as const;

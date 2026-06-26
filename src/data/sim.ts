@@ -17,6 +17,10 @@ export const SIM = {
   // --- movement (px/sec) ---
   /** base top speed, then scaled by METABOLIC_RATE (faster) and SIZE (slower). */
   baseMaxSpeed: 95,
+  /** how strongly SIZE slows movement: maxSpeed /= (1-k) + k·SIZE. Lower k = milder
+   * penalty, so big bodies can still forage in a patchy world (else they starve
+   * between patches and SIZE has no viable niche). */
+  sizeSpeedFactor: 0.3,
   /** how hard velocity chases the steering target (per second). */
   steerAccel: 6,
   /** velocity retained at a wall after reflecting. */

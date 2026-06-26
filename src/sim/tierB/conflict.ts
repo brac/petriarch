@@ -73,16 +73,31 @@ export function conflict(world: World): void {
       const sizj = genes[bj + GENE.SIZE]!;
       const si = sizi * (0.5 + aggi) * (0.5 + rng.next());
       const sj = sizj * (0.5 + aggj) * (0.5 + rng.next());
+      let winner: number;
       let loser: number;
       let winSize: number;
       if (si >= sj) {
+        winner = i;
         loser = j;
         winSize = sizi;
       } else {
+        winner = j;
         loser = i;
         winSize = sizj;
       }
-      energy[loser] = energy[loser]! - CONFLICT.loserDamage * winSize;
+      // The loser takes SIZE-scaled damage; the winner ROBS a fraction of it. These
+      // spoils are what make SIZE+AGGRESSION pay — a predator strategy that competes
+      // with small-fast-forager. Predation is lossy (stealFrac < 1) so it transfers
+      // energy rather than creating it; carrying capacity stays food-bound.
+      const dmg = CONFLICT.loserDamage * winSize;
+      const le = energy[loser]!;
+      energy[loser] = le - dmg;
+      const stolen = (le > 0 ? (dmg < le ? dmg : le) : 0) * CONFLICT.stealFrac;
+      if (stolen > 0) {
+        const wMaxE = winSize * SIM.maxEnergyPerSize;
+        const we = energy[winner]! + stolen;
+        energy[winner] = we > wMaxE ? wMaxE : we;
+      }
       fightCd[i] = CONFLICT.cooldownTicks;
       fightCd[j] = CONFLICT.cooldownTicks;
 

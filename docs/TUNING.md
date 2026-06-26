@@ -15,14 +15,14 @@ not edit-refresh. Until then, edit the data file and refresh.
 
 | Lever | Constant(s) | File | Current |
 |---|---|---|---|
-| **Movement amount** | `baseMaxSpeed`, `steerAccel`, `wallBounce` | `src/data/sim.ts` | 95, 6, 0.5 |
+| **Movement amount** | `baseMaxSpeed`, `steerAccel`, `wallBounce`, `sizeSpeedFactor` | `src/data/sim.ts` | 95, 6, 0.5, 0.3 |
 | **Food available** | `cellCapacity`, `clumping`, `clumpCount`, `startFrac` | `src/data/resources.ts` | 14, 0.7, 14, 0.35 |
 | **Regrowth rate** | `regrowthRate` | `src/data/resources.ts` | 0.045 |
-| **Intake rate** | `intakeRate` | `src/data/costs.ts` | 1.1 |
+| **Intake rate** | `intakeRate`, `intakeSizeExp` | `src/data/costs.ts` | 1.1, 1.0 |
 | **Metabolic costs** | `baseDrain` (flat), `sizeDrain`, `moveCost`, `senescenceDrain` | `src/data/costs.ts` | 0.05, 0.05, 0.0009, 0.25 |
 | **Mutation scale** | `baseMutationScale`, `mutabilityFloor` | `src/data/sim.ts` | 0.08, 0.05 |
 | **Reproduction** | `reproInvestFrac`, `birthJitter` | `src/data/sim.ts` | 0.7, 14 |
-| **Conflict** | `range`, `aggressionThreshold`, `loserDamage`, `cooldownTicks`, `contestResourceMin` | `src/data/conflict.ts` | 30, 0.45, 6, 18, 4 |
+| **Conflict** | `range`, `aggressionThreshold`, `loserDamage`, `stealFrac`, `cooldownTicks`, `contestResourceMin` | `src/data/conflict.ts` | 45, 0.45, 10, 0.8, 18, 2 |
 | **Sensing** | `senseRadius`, `separationRadius`, `sigThreshold` | `src/data/sim.ts` | 60, 26, 0.22 |
 | **God radii/strength** | `bloom*`, `hazard*`, `smite*` | `src/data/resources.ts` | — |
 | **Population / seeding** | `initialPop`, `founderTribes`, `MAX_AGENTS` | `src/data/sim.ts`, `capacity.ts` | 700, 8, 5000 |
@@ -43,10 +43,18 @@ pause, and the headless trigger.
    55%), with mild famine/regrowth oscillation. Side effect: METABOLIC_RATE regained
    its tradeoff (rises under scarcity — you must move to find patchy food). Tuned
    empirically via a headless sweep across seeds.
-2. **Give SIZE a real tradeoff.** It drifts toward its floor (~0.4) because small
-   cheap bodies breed fastest and big bodies rarely cash in their fight advantage. A
-   gene pinned at one end is a "bug by definition" (CLAUDE.md). Fix by making food
-   scarce (so contests decide survival) and/or raising `CONFLICT.loserDamage`.
+2. ~~**Give SIZE a real tradeoff.**~~ DONE. SIZE floored because big bodies (a) bred
+   far slower yet ate at a flat rate, (b) were crippled by the size→speed penalty so
+   they foraged badly, and (c) gained nothing from winning fights. Three changes:
+   - **Predation spoils** — the fight winner robs `stealFrac` (0.8) of the loser's
+     lost energy (`conflict.ts`). Winning now pays → a predator strategy exists.
+   - **Size-scaled intake** — `intakeSizeExp` (1.0): bigger mouths harvest faster
+     (`metabolism.ts`), so big bodies can accumulate energy to breed.
+   - **Softer size→speed penalty** — `sizeSpeedFactor` 0.6→0.3 (`integrate.ts`), so
+     big bodies still forage in a patchy world.
+   - Plus more frequent contests (`range` 30→45, `contestResourceMin` 4→2).
+   Result: frequency-dependent coexistence — SIZE variance sd 0.16–0.34, a viable
+   big-predator niche (2–18% big depending on seed), population still food-bound.
 3. **Watch mutability** — it correctly trends toward the floor in a stable world; if
    you start perturbing heavily it should rise. Good signal to validate after god
    tools get used a lot.
@@ -64,6 +72,12 @@ pause, and the headless trigger.
 3. **Conflict frequency reads low once tribes segregate** — sparks fall off as tribes
    form territories (emergent, not a bug). Consider a subtle persistent "frontier"
    highlight so a cold border still reads, not just live sparks.
+4. **Intensity mildly affects evolution, not just perf.** `conflict` runs at the
+   think cadence (a CPU win), so at low intensity (higher `THINK_INTERVAL`) contests
+   resolve less often → weaker predation selection → less SIZE diversity (e.g. ~0%
+   big at 55% vs 2–18% at full). Acceptable tradeoff for now; future options: run
+   conflict every tick again (costs the extra broadphase), or scale its rolls by the
+   think interval so per-tick conflict pressure is intensity-invariant.
 
 ---
 

@@ -21,8 +21,10 @@ export function integrate(world: World): void {
     const bi = i * GENE_COUNT;
     const size = genes[bi + GENE.SIZE]!;
     const mr = genes[bi + GENE.METABOLIC_RATE]!;
-    // px/sec: faster metabolism speeds up, bigger size slows down.
-    const maxSpeed = (SIM.baseMaxSpeed * (0.4 + 0.6 * mr)) / (0.4 + 0.6 * size);
+    // px/sec: faster metabolism speeds up, bigger size slows down (penalty
+    // strength = SIM.sizeSpeedFactor, mild enough that big bodies still forage).
+    const k = SIM.sizeSpeedFactor;
+    const maxSpeed = (SIM.baseMaxSpeed * (0.4 + 0.6 * mr)) / (1 - k + k * size);
 
     const dvx = steerX[i]! * maxSpeed;
     const dvy = steerY[i]! * maxSpeed;

@@ -34,4 +34,14 @@ export class Rng {
   reseed(seed: number): void {
     this.state = seed >>> 0;
   }
+
+  /** Snapshot the exact stream position (for snapshot/restore). */
+  getState(): number {
+    return this.state >>> 0;
+  }
+
+  /** Restore a previously captured stream position. */
+  setState(state: number): void {
+    this.state = state >>> 0;
+  }
 }

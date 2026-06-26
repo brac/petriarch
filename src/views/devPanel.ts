@@ -7,6 +7,8 @@
 // params (resource cellCapacity/clumping, MAX_AGENTS) and seed-restart belong with
 // snapshot/restore, since they need a world rebuild.
 
+import type { World } from "../state/world";
+import { serializeWorld, restoreWorld } from "../tools/snapshot";
 import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
@@ -45,7 +47,7 @@ function fmt(v: number): string {
 }
 
 export class DevPanel {
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, world: World) {
     const defaults = TUNABLES.map((t) => t.get());
 
     const header = document.createElement("div");
@@ -110,5 +112,49 @@ export class DevPanel {
       }
     });
     body.appendChild(reset);
+
+    // --- snapshot / restore ---
+    const snapGroup = document.createElement("div");
+    snapGroup.className = "dp-group";
+    snapGroup.textContent = "Snapshot";
+    body.appendChild(snapGroup);
+
+    const save = document.createElement("button");
+    save.className = "dp-reset";
+    save.textContent = "save snapshot";
+    save.addEventListener("click", () => {
+      const blob = new Blob([serializeWorld(world)], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `petriarch-t${world.tick}.petri`;
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+    body.appendChild(save);
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = ".petri";
+    fileInput.style.display = "none";
+    fileInput.addEventListener("change", () => {
+      const f = fileInput.files && fileInput.files[0];
+      if (!f) return;
+      void f.arrayBuffer().then((buf) => {
+        try {
+          restoreWorld(world, buf);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("snapshot load failed:", err);
+        }
+        fileInput.value = "";
+      });
+    });
+    const load = document.createElement("button");
+    load.className = "dp-reset";
+    load.textContent = "load snapshot";
+    load.addEventListener("click", () => fileInput.click());
+    body.appendChild(load);
+    body.appendChild(fileInput);
   }
 }

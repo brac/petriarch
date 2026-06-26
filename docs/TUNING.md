@@ -7,9 +7,11 @@ regrowth + distribution.
 
 **Live dev panel (built):** the top-right ⚙ DEV panel (`src/views/devPanel.ts`) has
 sliders for the live-effective tunables (regrowth, drain, intake, speed, mutation,
-repro, conflict) — drag to tune in real time. Init-only params (cellCapacity,
-clumping, startFrac) and seed-restart aren't there yet; they need a world rebuild
-(coming with snapshot/restore). For those, edit the data file and refresh.
+repro, conflict) — drag to tune in real time — plus **save/load snapshot** buttons
+(serialize the whole world to a `.petri` file and restore it; `src/tools/snapshot.ts`).
+Restore is deterministic and self-consistent (two restores of one snapshot evolve
+identically), so you can fork a run and A/B different perturbations. Init-only params
+(cellCapacity, clumping, startFrac) still need a data-file edit + refresh.
 
 **Measured runs (built):** `npm run headless` fast-forwards the sim with no render
 and prints per-generation pop / lineage / births / deaths / gene mean±sd — use it to

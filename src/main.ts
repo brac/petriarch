@@ -51,7 +51,7 @@ function main(): void {
   });
 
   const devEl = document.getElementById("devpanel");
-  if (devEl) new DevPanel(devEl);
+  if (devEl) new DevPanel(devEl, world);
 
   // One fixed tick: the canonical sim order (docs/simulation-systems.md §Tier map),
   // with thinking (sense+steer) decoupled from acting via the think timer.

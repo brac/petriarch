@@ -102,6 +102,16 @@ export class Agents {
     this.alive[i] = 1;
     this.fightCd[i] = 0;
     this.neighborCount[i] = 0;
+    // Clear the sense scratch for the reused slot so a newly-activated agent never
+    // carries a dead predecessor's aggregates (keeps the sim a pure function of the
+    // serialized state — important for deterministic snapshot/restore).
+    this.senseKinX[i] = 0;
+    this.senseKinY[i] = 0;
+    this.senseKinCount[i] = 0;
+    this.senseSepX[i] = 0;
+    this.senseSepY[i] = 0;
+    this.senseAvoidX[i] = 0;
+    this.senseAvoidY[i] = 0;
     this.bornTotal++;
     return i;
   }

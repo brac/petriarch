@@ -194,9 +194,24 @@ integrate's verify upload of an explicit steer vector silently failed and integr
 **All Tier A passes are ported and verified** (hash, sense, steer, integrate,
 metabolism) via `tools/gpu-verify` — gpuErrors empty, all green.
 
-**Next (step 5–6): wire readback into the loop.** Keep agent state GPU-resident across
-the Tier A chain; read back only what Tier B needs (positions for render + god
-hit-testing; energy/age/flags for reproduce/death). Open design point: conflict (Tier
-B) currently reuses sense's CPU neighbor cache — once sense is GPU-resident it needs its
-own neighbor source (its own hash query on the read-back positions, or a neighbor
-readback). Then crank the slider, profile, raise MAX_AGENTS.
+**Step 6a — resident Tier A chain (done, verified).** `GpuContext` now has a resident
+path: `uploadState`/`uploadResources` → `runTierA(count, think, seed, senseP, hz)` →
+`downloadState`/`downloadResources`. `runTierA` encodes the whole chain in ONE
+submission — on think ticks hash → sense → steer, every tick integrate → metabolism —
+each pass its own compute pass (auto inter-pass barriers). State stays in GPU buffers
+across all passes (no readback between them — the buffer contract's payoff). integrate
+was refactored to write pos/vel IN PLACE so metabolism reads the moved positions, just
+like the CPU order. `verifyChain` runs the full resident chain vs the full CPU sequence
+(wander neutralized) from one snapshot: posVel 0 diffs (worst ~1.6e-3, same as
+standalone integrate — chaining adds no error), age 0, energy 0 (uncontended). The
+per-pass `*Build` verifies still pass after the refactor.
+
+**Step 6b — wire it into the loop (the remaining piece).** Design fork: the
+fixed-timestep `Loop.update()` is SYNCHRONOUS (up to 8 ticks/frame in a while-loop),
+but GPU readback (`downloadState`) is ASYNC. So a GPU sim step can't run inside the sync
+loop as-is. Options: (a) a separate async pump driving one awaited GPU tick per rAF
+frame (simplest; loses fixed-timestep multi-tick fast-forward, fine for the GPU
+domain); (b) one-frame-latency pipelining (submit tick N, read back tick N-1, no stall).
+Also still open: conflict (Tier B) reuses sense's CPU neighbor cache — once sense is
+GPU-resident it needs its own neighbor source (its own hash query on the read-back
+positions). Then crank the slider, profile, raise MAX_AGENTS.

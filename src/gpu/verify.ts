@@ -23,7 +23,7 @@ import { sense } from "../sim/tierA/sense";
 import { steer } from "../sim/tierA/steer";
 import { integrate } from "../sim/tierA/integrate";
 import { metabolism } from "../sim/tierA/metabolism";
-import { type GpuContext, SENSE_STRIDE, STEER_STRIDE, INTEGRATE_STRIDE } from "./gpuContext";
+import { type GpuContext, SENSE_STRIDE, STEER_STRIDE } from "./gpuContext";
 
 export interface HashVerifyResult {
   ok: boolean;
@@ -346,11 +346,10 @@ export async function verifyIntegrate(world: World, gpu: GpuContext): Promise<In
   let worstAbs = 0;
   const notes: string[] = [];
   for (let i = 0; i < count; i++) {
-    const o = i * INTEGRATE_STRIDE;
-    const dpx = Math.abs(out[o + 0]! - cX[i]!);
-    const dpy = Math.abs(out[o + 1]! - cY[i]!);
-    const dvx = Math.abs(out[o + 2]! - cVX[i]!);
-    const dvy = Math.abs(out[o + 3]! - cVY[i]!);
+    const dpx = Math.abs(out.posX[i]! - cX[i]!);
+    const dpy = Math.abs(out.posY[i]! - cY[i]!);
+    const dvx = Math.abs(out.velX[i]! - cVX[i]!);
+    const dvy = Math.abs(out.velY[i]! - cVY[i]!);
     const d = Math.max(dpx, dpy, dvx, dvy);
     if (d > worstAbs) worstAbs = d;
     if (d > 1e-2) {
@@ -456,6 +455,153 @@ export async function verifyMetabolism(world: World, gpu: GpuContext): Promise<M
     energyMismatchesUncontended,
     energyMismatchesContended,
     worstUncontendedEnergy,
+    notes,
+  };
+}
+
+export interface ChainVerifyResult {
+  ok: boolean;
+  count: number;
+  /** Sense-capped agents — excluded from pos/vel/energy (steer order-dependent). */
+  capped: number;
+  /** Uncapped agents whose post-chain pos/vel exceeded tolerance (should be 0). */
+  posVelMismatches: number;
+  worstPosVel: number;
+  /** Agents whose age diverged (should be 0). */
+  ageMismatches: number;
+  /** Uncapped, single-occupant-cell agents whose energy diverged (should be 0). */
+  energyMismatches: number;
+  /** Contended-cell energy divergences (allowed — intake order domain). */
+  energyContended: number;
+  notes: string[];
+}
+
+// Whole-chain check: the GPU runs the full RESIDENT Tier A chain (hash → sense → steer
+// → integrate → metabolism, no readback between passes) and is compared to the CPU
+// running the same passes in sequence, from one frozen snapshot. Wander is neutralized
+// (WANDER gene zeroed both sides) so steer is deterministic. Run at max intensity so
+// almost nothing sense-caps. Excludes sense-capped agents (steer order-dependent) from
+// pos/vel/energy, and contended resource cells from energy. The live world's mutated
+// state (pos/vel/energy/age/resources, genes, RNG) is restored after the CPU run.
+export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainVerifyResult> {
+  const a = world.agents;
+  const count = a.count;
+  const W = GENE.WANDER;
+
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
+  const snapVX = a.velX.slice(0, count);
+  const snapVY = a.velY.slice(0, count);
+  const snapEnergy = a.energy.slice(0, count);
+  const snapAge = a.age.slice(0, count);
+  const snapGenes = a.genes.slice(0, count * GENE_COUNT);
+  const snapRes = world.resources.slice();
+  for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
+
+  const budget = world.intensity.neighborBudget;
+  const senseP = {
+    budget,
+    senseR2: SIM.senseRadius * SIM.senseRadius,
+    sepR2: SIM.separationRadius * SIM.separationRadius,
+    sigT: SIM.sigThreshold,
+  };
+  const hz = world.hazard;
+  const hazP = { active: hz.life > 0, x: hz.x, y: hz.y, r2: hz.r * hz.r };
+
+  // CPU reference: full Tier A sequence with wander zeroed; restore everything after.
+  const rngState = world.rng.getState();
+  const savedWander = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    savedWander[i] = a.genes[i * GENE_COUNT + W]!;
+    a.genes[i * GENE_COUNT + W] = 0;
+  }
+  world.hash.build(a.posX, a.posY, count);
+  sense(world);
+  const cNbr = a.neighborCount.slice(0, count);
+  steer(world);
+  integrate(world);
+  metabolism(world);
+  const cX = a.posX.slice(0, count);
+  const cY = a.posY.slice(0, count);
+  const cVX = a.velX.slice(0, count);
+  const cVY = a.velY.slice(0, count);
+  const cE = a.energy.slice(0, count);
+  const cA = a.age.slice(0, count);
+  // restore live world
+  for (let i = 0; i < count; i++) a.genes[i * GENE_COUNT + W] = savedWander[i]!;
+  world.rng.setState(rngState);
+  a.posX.set(snapX);
+  a.posY.set(snapY);
+  a.velX.set(snapVX);
+  a.velY.set(snapVY);
+  a.energy.set(snapEnergy);
+  a.age.set(snapAge);
+  world.resources.set(snapRes);
+
+  // GPU resident chain on the same snapshot.
+  gpu.uploadState(snapX, snapY, snapVX, snapVY, snapEnergy, snapAge, snapGenes, count);
+  gpu.uploadResources(snapRes);
+  gpu.runTierA(count, true, world.tick, senseP, hazP);
+  const g = await gpu.downloadState();
+
+  // Occupancy of the post-integrate resource cells (matches grid.ts).
+  const occ = new Int32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+  const resCell = (x: number, y: number): number => {
+    let cx = (x / RES_CELL_W) | 0;
+    cx = cx < 0 ? 0 : cx >= RESOURCE_GRID_W ? RESOURCE_GRID_W - 1 : cx;
+    let cy = (y / RES_CELL_H) | 0;
+    cy = cy < 0 ? 0 : cy >= RESOURCE_GRID_H ? RESOURCE_GRID_H - 1 : cy;
+    return cy * RESOURCE_GRID_W + cx;
+  };
+  for (let i = 0; i < count; i++) occ[resCell(cX[i]!, cY[i]!)]!++;
+
+  let capped = 0;
+  let posVelMismatches = 0;
+  let worstPosVel = 0;
+  let ageMismatches = 0;
+  let energyMismatches = 0;
+  let energyContended = 0;
+  const notes: string[] = [];
+
+  for (let i = 0; i < count; i++) {
+    if (Math.abs(g.age[i]! - cA[i]!) > 1e-3) {
+      ageMismatches++;
+      if (notes.length < 8) notes.push(`agent ${i} age cpu=${cA[i]!.toFixed(3)} gpu=${g.age[i]!.toFixed(3)}`);
+    }
+    if (cNbr[i]! >= budget) {
+      capped++;
+      continue;
+    }
+    const dPV = Math.max(
+      Math.abs(g.posX[i]! - cX[i]!),
+      Math.abs(g.posY[i]! - cY[i]!),
+      Math.abs(g.velX[i]! - cVX[i]!),
+      Math.abs(g.velY[i]! - cVY[i]!),
+    );
+    if (dPV > worstPosVel) worstPosVel = dPV;
+    if (dPV > 2e-2) {
+      posVelMismatches++;
+      if (notes.length < 8) notes.push(`agent ${i} posVel d=${dPV.toExponential(2)}`);
+    }
+    const dE = Math.abs(g.energy[i]! - cE[i]!);
+    if (dE > 5e-3) {
+      if (occ[resCell(cX[i]!, cY[i]!)]! > 1) energyContended++;
+      else {
+        energyMismatches++;
+        if (notes.length < 8) notes.push(`agent ${i} energy cpu=${cE[i]!.toFixed(3)} gpu=${g.energy[i]!.toFixed(3)} (single-cell)`);
+      }
+    }
+  }
+
+  return {
+    ok: posVelMismatches === 0 && ageMismatches === 0 && energyMismatches === 0,
+    count,
+    capped,
+    posVelMismatches,
+    worstPosVel,
+    ageMismatches,
+    energyMismatches,
+    energyContended,
     notes,
   };
 }

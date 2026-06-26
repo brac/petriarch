@@ -1,8 +1,12 @@
 // The simulation's WebGPU compute context — owns the device, the storage buffers
-// that mirror the SoA pools, and the Tier A compute pipelines. Built once at
-// capacity (zero per-frame allocation, same discipline as the CPU pools). For now
-// it hosts only the spatial-hash counting sort (the first pass to port); sense /
-// steer / integrate / metabolism kernels attach here next, reusing these buffers.
+// that mirror the SoA pools, and the full Tier A compute pipeline (hash counting-sort,
+// sense, steer, integrate, metabolism). Built once at capacity (zero per-frame
+// allocation, same discipline as the CPU pools).
+//
+// Two ways to drive it: the *Build/read* method pairs upload explicit inputs + read
+// one pass back (used by the per-pass verifies), and the RESIDENT chain
+// (uploadState → runTierA → downloadState) keeps agent state in GPU buffers across all
+// passes with no readback between them — the loop's hot path.
 //
 // Grid config mirrors core/spatialHash.ts exactly (gridW = ceil(worldW/cellSize))
 // so a GPU build is directly comparable to the CPU reference.
@@ -32,9 +36,17 @@ const WG = 64; // workgroup size for the per-agent/per-cell kernels (must match 
 export const SENSE_STRIDE = 7;
 /** Steer output stride: [steerX, steerY]. */
 export const STEER_STRIDE = 2;
-/** Integrate output stride: [posX, posY, velX, velY]. */
-export const INTEGRATE_STRIDE = 4;
 const RES_CELLS = RESOURCE_GRID_W * RESOURCE_GRID_H;
+
+/** Full agent state read back from the GPU after a resident Tier A run. */
+export interface GpuState {
+  posX: Float32Array;
+  posY: Float32Array;
+  velX: Float32Array;
+  velY: Float32Array;
+  energy: Float32Array;
+  age: Float32Array;
+}
 
 export interface GpuGridResult {
   /** Exclusive prefix sums, length numCells+1 (a fresh copy off the GPU). */
@@ -105,15 +117,20 @@ export class GpuContext {
   private readonly velXBuf: GPUBuffer;
   private readonly velYBuf: GPUBuffer;
 
-  // --- integrate pass (per-agent physics; reads steer + state, writes new state) ---
+  // --- integrate pass (per-agent physics; reads steer, reads+writes pos/vel in place) ---
   private readonly intParamsBuf: GPUBuffer;
-  private readonly intOutBuf: GPUBuffer;
-  private readonly intOutRead: GPUBuffer;
   private readonly intBindGroup: GPUBindGroup;
   private readonly pipeIntegrate: GPUComputePipeline;
   private readonly intParamsHost = new ArrayBuffer(32);
   private readonly intParamsU32 = new Uint32Array(this.intParamsHost);
   private readonly intParamsF32 = new Float32Array(this.intParamsHost);
+
+  // --- staging buffers for reading agent state back (resident chain + verifies) ---
+  private readonly posXRead: GPUBuffer;
+  private readonly posYRead: GPUBuffer;
+  private readonly velXRead: GPUBuffer;
+  private readonly velYRead: GPUBuffer;
+  private readonly resourcesRead: GPUBuffer;
 
   // --- energy / age buffers (persistent state; metabolism reads + writes them) ---
   private readonly energyBuf: GPUBuffer;
@@ -150,8 +167,8 @@ export class GpuContext {
     const buf = (size: number, usage: number): GPUBuffer => dev.createBuffer({ size, usage });
 
     this.paramsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    this.posXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
-    this.posYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.posXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.posYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.countsBuf = buf(this.numCells * u32, STORAGE);
     this.cellStartBuf = buf((this.numCells + 1) * u32, STORAGE | GPUBufferUsage.COPY_SRC);
     this.itemsBuf = buf(capacity * u32, STORAGE | GPUBufferUsage.COPY_SRC);
@@ -228,7 +245,7 @@ export class GpuContext {
     });
 
     // --- steer pass: consumes senseOut + genes (resident) + the resource field ---
-    this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.steerParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
@@ -263,24 +280,27 @@ export class GpuContext {
       ],
     });
 
-    // --- integrate pass: consumes steerOut + persistent state, writes new state ---
-    this.velXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
-    this.velYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    // --- integrate pass: consumes steerOut, reads+writes pos/vel in place ---
+    this.velXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.velYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.intParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    this.intOutBuf = buf(capacity * INTEGRATE_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC);
-    this.intOutRead = buf(capacity * INTEGRATE_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    const readBuf = (n: number): GPUBuffer => buf(n, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    this.posXRead = readBuf(capacity * f32);
+    this.posYRead = readBuf(capacity * f32);
+    this.velXRead = readBuf(capacity * f32);
+    this.velYRead = readBuf(capacity * f32);
+    this.resourcesRead = readBuf(RES_CELLS * f32);
 
     const intModule = dev.createShaderModule({ code: INTEGRATE_WGSL });
     const intLayout = dev.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     this.pipeIntegrate = dev.createComputePipeline({
@@ -297,7 +317,6 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.velYBuf } },
         { binding: 5, resource: { buffer: this.steerOutBuf } },
         { binding: 6, resource: { buffer: this.genesBuf } },
-        { binding: 7, resource: { buffer: this.intOutBuf } },
       ],
     });
 
@@ -349,9 +368,8 @@ export class GpuContext {
     return new GpuContext(gpu, cellSize, worldW, worldH, capacity);
   }
 
-  /** Upload positions and run clear → count → scan → scatter for the active set. */
-  buildHash(posX: Float32Array, posY: Float32Array, count: number): void {
-    // Params upload (matches the WGSL struct layout, 32 bytes).
+  // --- param-uniform setters (shared by the *Build methods and the resident chain) ---
+  private writeHashParams(count: number): void {
     this.paramsU32[0] = count;
     this.paramsU32[1] = this.gridW;
     this.paramsU32[2] = this.gridH;
@@ -361,6 +379,77 @@ export class GpuContext {
     this.paramsF32[6] = this.gridH * this.cellSize; // worldH
     this.paramsU32[7] = 0;
     this.queue.writeBuffer(this.paramsBuf, 0, this.paramsHost);
+  }
+
+  private writeSenseParams(count: number, p: SenseParams): void {
+    this.senseParamsU32[0] = count;
+    this.senseParamsU32[1] = this.gridW;
+    this.senseParamsU32[2] = this.gridH;
+    this.senseParamsU32[3] = p.budget;
+    this.senseParamsF32[4] = this.cellSize;
+    this.senseParamsF32[5] = p.senseR2;
+    this.senseParamsF32[6] = p.sepR2;
+    this.senseParamsF32[7] = p.sigT;
+    this.queue.writeBuffer(this.senseParamsBuf, 0, this.senseParamsHost);
+  }
+
+  private writeSteerParams(count: number, seed: number): void {
+    this.steerParamsU32[0] = count;
+    this.steerParamsU32[1] = RESOURCE_GRID_W;
+    this.steerParamsU32[2] = RESOURCE_GRID_H;
+    this.steerParamsU32[3] = seed >>> 0;
+    this.steerParamsF32[4] = RES_CELL_W;
+    this.steerParamsF32[5] = RES_CELL_H;
+    this.steerParamsF32[6] = 0;
+    this.steerParamsF32[7] = 0;
+    this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
+  }
+
+  private writeIntParams(count: number): void {
+    this.intParamsU32[0] = count;
+    this.intParamsF32[1] = SIM.steerAccel;
+    this.intParamsF32[2] = SIM.wallBounce;
+    this.intParamsF32[3] = WORLD_W;
+    this.intParamsF32[4] = WORLD_H;
+    this.intParamsF32[5] = SIM.sizeSpeedFactor;
+    this.intParamsF32[6] = SIM.baseMaxSpeed;
+    this.intParamsF32[7] = TICK_DT;
+    this.queue.writeBuffer(this.intParamsBuf, 0, this.intParamsHost);
+  }
+
+  private writeMetabParams(count: number, hz: HazardParams): void {
+    this.metabParamsU32[0] = count;
+    this.metabParamsU32[1] = RESOURCE_GRID_W;
+    this.metabParamsU32[2] = RESOURCE_GRID_H;
+    this.metabParamsU32[3] = hz.active ? 1 : 0;
+    this.metabParamsF32[4] = TICK_DT;
+    this.metabParamsF32[5] = COSTS.baseDrain;
+    this.metabParamsF32[6] = COSTS.sizeDrain;
+    this.metabParamsF32[7] = COSTS.moveCost;
+    this.metabParamsF32[8] = COSTS.senescenceDrain;
+    this.metabParamsF32[9] = COSTS.hazardDrain;
+    this.metabParamsF32[10] = COSTS.intakeRate;
+    this.metabParamsF32[11] = COSTS.intakeSizeExp;
+    this.metabParamsF32[12] = SIM.maxEnergyPerSize;
+    this.metabParamsF32[13] = RES_CELL_W;
+    this.metabParamsF32[14] = RES_CELL_H;
+    this.metabParamsF32[15] = hz.x;
+    this.metabParamsF32[16] = hz.y;
+    this.metabParamsF32[17] = hz.r2;
+    this.queue.writeBuffer(this.metabParamsBuf, 0, this.metabParamsHost);
+  }
+
+  private passWith(enc: GPUCommandEncoder, bindGroup: GPUBindGroup, pipeline: GPUComputePipeline, wg: number): void {
+    const pass = enc.beginComputePass();
+    pass.setBindGroup(0, bindGroup);
+    pass.setPipeline(pipeline);
+    pass.dispatchWorkgroups(wg);
+    pass.end();
+  }
+
+  /** Upload positions and run clear → count → scan → scatter for the active set. */
+  buildHash(posX: Float32Array, posY: Float32Array, count: number): void {
+    this.writeHashParams(count);
 
     if (count > 0) {
       // Cast narrows Float32Array<ArrayBufferLike> → <ArrayBuffer> for the WebGPU
@@ -414,15 +503,7 @@ export class GpuContext {
    * dispatches over the active set. Output is read with readSense().
    */
   senseBuild(genes: Float32Array, count: number, p: SenseParams): void {
-    this.senseParamsU32[0] = count;
-    this.senseParamsU32[1] = this.gridW;
-    this.senseParamsU32[2] = this.gridH;
-    this.senseParamsU32[3] = p.budget;
-    this.senseParamsF32[4] = this.cellSize;
-    this.senseParamsF32[5] = p.senseR2;
-    this.senseParamsF32[6] = p.sepR2;
-    this.senseParamsF32[7] = p.sigT;
-    this.queue.writeBuffer(this.senseParamsBuf, 0, this.senseParamsHost);
+    this.writeSenseParams(count, p);
 
     if (count > 0) {
       this.queue.writeBuffer(this.genesBuf, 0, genes as Float32Array<ArrayBuffer>, 0, count * GENE_COUNT);
@@ -456,15 +537,7 @@ export class GpuContext {
    * (the GPU's own determinism domain — pass the sim tick).
    */
   steerBuild(resources: Float32Array, count: number, seed: number): void {
-    this.steerParamsU32[0] = count;
-    this.steerParamsU32[1] = RESOURCE_GRID_W;
-    this.steerParamsU32[2] = RESOURCE_GRID_H;
-    this.steerParamsU32[3] = seed >>> 0;
-    this.steerParamsF32[4] = RES_CELL_W;
-    this.steerParamsF32[5] = RES_CELL_H;
-    this.steerParamsF32[6] = 0;
-    this.steerParamsF32[7] = 0;
-    this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
+    this.writeSteerParams(count, seed);
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
 
     const enc = this.device.createCommandEncoder();
@@ -503,15 +576,7 @@ export class GpuContext {
     genes: Float32Array,
     count: number,
   ): void {
-    this.intParamsU32[0] = count;
-    this.intParamsF32[1] = SIM.steerAccel;
-    this.intParamsF32[2] = SIM.wallBounce;
-    this.intParamsF32[3] = WORLD_W;
-    this.intParamsF32[4] = WORLD_H;
-    this.intParamsF32[5] = SIM.sizeSpeedFactor;
-    this.intParamsF32[6] = SIM.baseMaxSpeed;
-    this.intParamsF32[7] = TICK_DT;
-    this.queue.writeBuffer(this.intParamsBuf, 0, this.intParamsHost);
+    this.writeIntParams(count);
 
     if (count > 0) {
       this.queue.writeBuffer(this.posXBuf, 0, posX as Float32Array<ArrayBuffer>, 0, count);
@@ -531,16 +596,29 @@ export class GpuContext {
     this.queue.submit([enc.finish()]);
   }
 
-  /** Read the interleaved integrate output back (length capacity*INTEGRATE_STRIDE). */
-  async readIntegrate(): Promise<Float32Array> {
+  /** Read the (in-place) integrate result: new posX/posY/velX/velY arrays. */
+  async readIntegrate(): Promise<{ posX: Float32Array; posY: Float32Array; velX: Float32Array; velY: Float32Array }> {
     const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const n = this.capacity * f32;
     const enc = this.device.createCommandEncoder();
-    enc.copyBufferToBuffer(this.intOutBuf, 0, this.intOutRead, 0, this.capacity * INTEGRATE_STRIDE * f32);
+    enc.copyBufferToBuffer(this.posXBuf, 0, this.posXRead, 0, n);
+    enc.copyBufferToBuffer(this.posYBuf, 0, this.posYRead, 0, n);
+    enc.copyBufferToBuffer(this.velXBuf, 0, this.velXRead, 0, n);
+    enc.copyBufferToBuffer(this.velYBuf, 0, this.velYRead, 0, n);
     this.queue.submit([enc.finish()]);
-    await this.intOutRead.mapAsync(GPUMapMode.READ);
-    const out = new Float32Array(this.intOutRead.getMappedRange()).slice();
-    this.intOutRead.unmap();
-    return out;
+    await this.posXRead.mapAsync(GPUMapMode.READ);
+    await this.posYRead.mapAsync(GPUMapMode.READ);
+    await this.velXRead.mapAsync(GPUMapMode.READ);
+    await this.velYRead.mapAsync(GPUMapMode.READ);
+    const posX = new Float32Array(this.posXRead.getMappedRange()).slice();
+    const posY = new Float32Array(this.posYRead.getMappedRange()).slice();
+    const velX = new Float32Array(this.velXRead.getMappedRange()).slice();
+    const velY = new Float32Array(this.velYRead.getMappedRange()).slice();
+    this.posXRead.unmap();
+    this.posYRead.unmap();
+    this.velXRead.unmap();
+    this.velYRead.unmap();
+    return { posX, posY, velX, velY };
   }
 
   /**
@@ -562,25 +640,7 @@ export class GpuContext {
     count: number,
     hz: HazardParams,
   ): void {
-    this.metabParamsU32[0] = count;
-    this.metabParamsU32[1] = RESOURCE_GRID_W;
-    this.metabParamsU32[2] = RESOURCE_GRID_H;
-    this.metabParamsU32[3] = hz.active ? 1 : 0;
-    this.metabParamsF32[4] = TICK_DT;
-    this.metabParamsF32[5] = COSTS.baseDrain;
-    this.metabParamsF32[6] = COSTS.sizeDrain;
-    this.metabParamsF32[7] = COSTS.moveCost;
-    this.metabParamsF32[8] = COSTS.senescenceDrain;
-    this.metabParamsF32[9] = COSTS.hazardDrain;
-    this.metabParamsF32[10] = COSTS.intakeRate;
-    this.metabParamsF32[11] = COSTS.intakeSizeExp;
-    this.metabParamsF32[12] = SIM.maxEnergyPerSize;
-    this.metabParamsF32[13] = RES_CELL_W;
-    this.metabParamsF32[14] = RES_CELL_H;
-    this.metabParamsF32[15] = hz.x;
-    this.metabParamsF32[16] = hz.y;
-    this.metabParamsF32[17] = hz.r2;
-    this.queue.writeBuffer(this.metabParamsBuf, 0, this.metabParamsHost);
+    this.writeMetabParams(count, hz);
 
     if (count > 0) {
       this.queue.writeBuffer(this.posXBuf, 0, posX as Float32Array<ArrayBuffer>, 0, count);
@@ -617,5 +677,108 @@ export class GpuContext {
     this.energyRead.unmap();
     this.ageRead.unmap();
     return { energy, age };
+  }
+
+  // ============================ resident Tier A chain ============================
+  // Upload state once, run the whole chain GPU-resident (no readback between passes —
+  // the buffer contract's payoff), read state back once. This is the loop's hot path.
+
+  /** Upload the full active-set agent state into the resident buffers. */
+  uploadState(
+    posX: Float32Array,
+    posY: Float32Array,
+    velX: Float32Array,
+    velY: Float32Array,
+    energy: Float32Array,
+    age: Float32Array,
+    genes: Float32Array,
+    count: number,
+  ): void {
+    if (count <= 0) return;
+    const c = (a: Float32Array): Float32Array<ArrayBuffer> => a as Float32Array<ArrayBuffer>;
+    this.queue.writeBuffer(this.posXBuf, 0, c(posX), 0, count);
+    this.queue.writeBuffer(this.posYBuf, 0, c(posY), 0, count);
+    this.queue.writeBuffer(this.velXBuf, 0, c(velX), 0, count);
+    this.queue.writeBuffer(this.velYBuf, 0, c(velY), 0, count);
+    this.queue.writeBuffer(this.energyBuf, 0, c(energy), 0, count);
+    this.queue.writeBuffer(this.ageBuf, 0, c(age), 0, count);
+    this.queue.writeBuffer(this.genesBuf, 0, c(genes), 0, count * GENE_COUNT);
+  }
+
+  /** Upload the resource field (f32 bits; metabolism's atomic intake depletes it). */
+  uploadResources(resources: Float32Array): void {
+    this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /**
+   * Run the resident Tier A chain in ONE submission. On think ticks: hash → sense →
+   * steer; every tick: integrate (in place) → metabolism. Each pass is its own compute
+   * pass so the automatic inter-pass barrier orders the read/write hazards. State must
+   * already be uploaded (uploadState/uploadResources); read back with downloadState.
+   */
+  runTierA(count: number, think: boolean, seed: number, senseP: SenseParams, hz: HazardParams): void {
+    if (think) {
+      this.writeHashParams(count);
+      this.writeSenseParams(count, senseP);
+      this.writeSteerParams(count, seed);
+    }
+    this.writeIntParams(count);
+    this.writeMetabParams(count, hz);
+
+    const agentWG = Math.max(1, Math.ceil(count / WG));
+    const cellWG = Math.ceil(this.numCells / WG);
+    const enc = this.device.createCommandEncoder();
+
+    if (think) {
+      // spatial hash (clear → count → scan → scatter), each its own pass
+      this.passWith(enc, this.bindGroup, this.pipeClear, cellWG);
+      if (count > 0) this.passWith(enc, this.bindGroup, this.pipeCount, agentWG);
+      this.passWith(enc, this.bindGroup, this.pipeScan, 1);
+      if (count > 0) this.passWith(enc, this.bindGroup, this.pipeScatter, agentWG);
+      // sense → steer
+      this.passWith(enc, this.senseBindGroup, this.pipeSense, agentWG);
+      this.passWith(enc, this.steerBindGroup, this.pipeSteer, agentWG);
+    }
+    // integrate (writes pos/vel in place) → metabolism (reads the moved positions)
+    this.passWith(enc, this.intBindGroup, this.pipeIntegrate, agentWG);
+    this.passWith(enc, this.metabBindGroup, this.pipeMetab, agentWG);
+
+    this.queue.submit([enc.finish()]);
+  }
+
+  /** Read the full agent state back after a resident run (positions, vel, energy, age). */
+  async downloadState(): Promise<GpuState> {
+    const n = this.capacity * Float32Array.BYTES_PER_ELEMENT;
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.posXBuf, 0, this.posXRead, 0, n);
+    enc.copyBufferToBuffer(this.posYBuf, 0, this.posYRead, 0, n);
+    enc.copyBufferToBuffer(this.velXBuf, 0, this.velXRead, 0, n);
+    enc.copyBufferToBuffer(this.velYBuf, 0, this.velYRead, 0, n);
+    enc.copyBufferToBuffer(this.energyBuf, 0, this.energyRead, 0, n);
+    enc.copyBufferToBuffer(this.ageBuf, 0, this.ageRead, 0, n);
+    this.queue.submit([enc.finish()]);
+    const reads = [this.posXRead, this.posYRead, this.velXRead, this.velYRead, this.energyRead, this.ageRead];
+    for (const r of reads) await r.mapAsync(GPUMapMode.READ);
+    const out: GpuState = {
+      posX: new Float32Array(this.posXRead.getMappedRange()).slice(),
+      posY: new Float32Array(this.posYRead.getMappedRange()).slice(),
+      velX: new Float32Array(this.velXRead.getMappedRange()).slice(),
+      velY: new Float32Array(this.velYRead.getMappedRange()).slice(),
+      energy: new Float32Array(this.energyRead.getMappedRange()).slice(),
+      age: new Float32Array(this.ageRead.getMappedRange()).slice(),
+    };
+    for (const r of reads) r.unmap();
+    return out;
+  }
+
+  /** Read the resource field back (depleted by metabolism's intake). */
+  async downloadResources(): Promise<Float32Array> {
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.resourcesBuf, 0, this.resourcesRead, 0, RES_CELLS * Float32Array.BYTES_PER_ELEMENT);
+    this.queue.submit([enc.finish()]);
+    await this.resourcesRead.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(this.resourcesRead.getMappedRange()).slice();
+    this.resourcesRead.unmap();
+    return out;
   }
 }

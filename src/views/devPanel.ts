@@ -14,7 +14,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { GpuContext } from "../gpu/gpuContext";
-import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism } from "../gpu/verify";
+import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism, verifyChain } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
@@ -268,6 +268,22 @@ export class DevPanel {
       }),
     );
     body.appendChild(verifyM);
+
+    const verifyC = document.createElement("button");
+    verifyC.className = "dp-reset";
+    verifyC.textContent = "verify GPU chain (resident, max intensity)";
+    verifyC.addEventListener("click", () =>
+      runGpu(verifyC, async (g) => {
+        const r = await verifyChain(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} capped=${r.capped}\n` +
+          `posVel diffs: ${r.posVelMismatches} (worst ${r.worstPosVel.toExponential(2)})  age diffs: ${r.ageMismatches}\n` +
+          `energy diffs (single-cell): ${r.energyMismatches}  contended: ${r.energyContended} (allowed)` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyC);
     body.appendChild(gpuStatus);
   }
 }

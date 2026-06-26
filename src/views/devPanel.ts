@@ -14,7 +14,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { GpuContext } from "../gpu/gpuContext";
-import { verifyHash, verifySense, verifySteer, verifyIntegrate } from "../gpu/verify";
+import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
@@ -252,6 +252,22 @@ export class DevPanel {
       }),
     );
     body.appendChild(verifyI);
+
+    const verifyM = document.createElement("button");
+    verifyM.className = "dp-reset";
+    verifyM.textContent = "verify GPU metabolism";
+    verifyM.addEventListener("click", () =>
+      runGpu(verifyM, async (g) => {
+        const r = await verifyMetabolism(world, g);
+        return (
+          `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count}\n` +
+          `age diffs: ${r.ageMismatches}  energy diffs (single-cell): ${r.energyMismatchesUncontended}\n` +
+          `contended energy diffs: ${r.energyMismatchesContended} (allowed)  worstE(single): ${r.worstUncontendedEnergy.toExponential(2)}` +
+          (r.notes.length ? "\n" + r.notes.join("\n") : "")
+        );
+      }),
+    );
+    body.appendChild(verifyM);
     body.appendChild(gpuStatus);
   }
 }

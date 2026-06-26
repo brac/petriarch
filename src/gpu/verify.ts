@@ -18,9 +18,11 @@
 import type { World } from "../state/world";
 import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
+import { RES_CELL_W, RES_CELL_H, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../data/capacity";
 import { sense } from "../sim/tierA/sense";
 import { steer } from "../sim/tierA/steer";
 import { integrate } from "../sim/tierA/integrate";
+import { metabolism } from "../sim/tierA/metabolism";
 import { type GpuContext, SENSE_STRIDE, STEER_STRIDE, INTEGRATE_STRIDE } from "./gpuContext";
 
 export interface HashVerifyResult {
@@ -362,4 +364,98 @@ export async function verifyIntegrate(world: World, gpu: GpuContext): Promise<In
   }
 
   return { ok: mismatches === 0, count, mismatches, worstAbs, notes };
+}
+
+export interface MetabolismVerifyResult {
+  ok: boolean;
+  count: number;
+  /** Agents whose age diverged (should be 0 — pure per-agent). */
+  ageMismatches: number;
+  /** Single-occupant-cell agents whose energy diverged (should be 0). */
+  energyMismatchesUncontended: number;
+  /** Multi-occupant-cell agents whose energy diverged (allowed — intake order domain). */
+  energyMismatchesContended: number;
+  /** Largest energy divergence among uncontended agents. */
+  worstUncontendedEnergy: number;
+  notes: string[];
+}
+
+// metabolism's drain + age is pure per-agent (exact match). Its resource intake is a
+// SHARED write: the GPU uses an atomic CAS-clamp whose order differs from the CPU's
+// index order, so agents that share a depleting cell can diverge (the GPU determinism
+// domain). We classify by resource-cell occupancy: single-occupant cells must match
+// exactly; multi-occupant divergences are reported but allowed. CPU energy/age/res are
+// restored after the reference run so the live sim is unperturbed.
+export async function verifyMetabolism(world: World, gpu: GpuContext): Promise<MetabolismVerifyResult> {
+  const a = world.agents;
+  const count = a.count;
+
+  const snapX = a.posX.slice(0, count);
+  const snapY = a.posY.slice(0, count);
+  const snapVX = a.velX.slice(0, count);
+  const snapVY = a.velY.slice(0, count);
+  const snapGenes = a.genes.slice(0, count * GENE_COUNT);
+  const snapEnergy = a.energy.slice(0, count);
+  const snapAge = a.age.slice(0, count);
+  const snapRes = world.resources.slice();
+  const hz = world.hazard;
+  const hazP = { active: hz.life > 0, x: hz.x, y: hz.y, r2: hz.r * hz.r };
+
+  // CPU reference: metabolism mutates energy/age in place and depletes resources.
+  metabolism(world);
+  const cEnergy = a.energy.slice(0, count);
+  const cAge = a.age.slice(0, count);
+  a.energy.set(snapEnergy);
+  a.age.set(snapAge);
+  world.resources.set(snapRes);
+
+  // GPU on the frozen snapshot.
+  gpu.metabolismBuild(snapX, snapY, snapVX, snapVY, snapGenes, snapEnergy, snapAge, snapRes, count, hazP);
+  const { energy: gE, age: gA } = await gpu.readMetabolism();
+
+  // Per-resource-cell occupancy (matches grid.ts resCellIndex).
+  const occ = new Int32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+  const resCell = (x: number, y: number): number => {
+    let cx = (x / RES_CELL_W) | 0;
+    cx = cx < 0 ? 0 : cx >= RESOURCE_GRID_W ? RESOURCE_GRID_W - 1 : cx;
+    let cy = (y / RES_CELL_H) | 0;
+    cy = cy < 0 ? 0 : cy >= RESOURCE_GRID_H ? RESOURCE_GRID_H - 1 : cy;
+    return cy * RESOURCE_GRID_W + cx;
+  };
+  for (let i = 0; i < count; i++) occ[resCell(snapX[i]!, snapY[i]!)]!++;
+
+  let ageMismatches = 0;
+  let energyMismatchesUncontended = 0;
+  let energyMismatchesContended = 0;
+  let worstUncontendedEnergy = 0;
+  const notes: string[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const dAge = Math.abs(gA[i]! - cAge[i]!);
+    if (dAge > 1e-3) {
+      ageMismatches++;
+      if (notes.length < 8) notes.push(`agent ${i} age cpu=${cAge[i]!.toFixed(4)} gpu=${gA[i]!.toFixed(4)}`);
+    }
+    const dE = Math.abs(gE[i]! - cEnergy[i]!);
+    const contended = occ[resCell(snapX[i]!, snapY[i]!)]! > 1;
+    if (contended) {
+      if (dE > 5e-3) energyMismatchesContended++;
+    } else {
+      if (dE > worstUncontendedEnergy) worstUncontendedEnergy = dE;
+      if (dE > 5e-3) {
+        energyMismatchesUncontended++;
+        if (notes.length < 8) notes.push(`agent ${i} energy cpu=${cEnergy[i]!.toFixed(4)} gpu=${gE[i]!.toFixed(4)} (single-occupant cell)`);
+      }
+    }
+  }
+
+  return {
+    ok: ageMismatches === 0 && energyMismatchesUncontended === 0,
+    count,
+    ageMismatches,
+    energyMismatchesUncontended,
+    energyMismatchesContended,
+    worstUncontendedEnergy,
+    notes,
+  };
 }

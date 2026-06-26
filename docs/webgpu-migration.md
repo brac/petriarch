@@ -173,6 +173,30 @@ the real CPU pass in place then restores pre-integrate state. All agents match (
 neighbor/RNG caveats): 0 mismatches, worstAbs ~1.6e-3 (f32 noise on positions up to
 1920).
 
-**Next:** `metabolism` — the hard one (resource-cell depletion is a shared write, and
-WGSL has no atomic float → bitcast CAS-clamp loop, order-dependent under contention),
-then wire readback into the loop.
+**Step 5b — metabolism (done, verified).** `src/gpu/shaders/metabolism.wgsl.ts` ports
+sim/tierA/metabolism.ts. The drain + age half is pure per-agent (exact match). The
+resource intake is the one SHARED write in Tier A: WGSL has no atomic float, so the
+resource buffer is treated as `array<atomic<u32>>` holding f32 bit patterns (the SAME
+bytes steer reads as `array<f32>` — bound two ways), and intake is a **bitcast
+CAS-clamp loop**: read current, take `g = min(desired, current)`, compare-exchange the
+reduced value, retry on contention. This conserves resources (energy granted ==
+resource removed) but is ORDER-DEPENDENT under contention (which agent wins scarce
+resource differs from the CPU's index order — the GPU determinism domain, same family
+as sense's neighbor cap and the hash's within-cell order). The verify classifies by
+resource-cell occupancy: single-occupant cells must match exactly (age + energy);
+multi-occupant divergences are reported but allowed. Result: age 0 diffs, uncontended
+energy 0 diffs (worst ~8e-6), 0 contended diffs (resources not binding at this density).
+
+A latent bug surfaced via the device-error capture: `steerOutBuf` lacked `COPY_DST`, so
+integrate's verify upload of an explicit steer vector silently failed and integrate
+"passed" only on leftover buffer contents. Fixed; integrate now passes for real.
+
+**All Tier A passes are ported and verified** (hash, sense, steer, integrate,
+metabolism) via `tools/gpu-verify` — gpuErrors empty, all green.
+
+**Next (step 5–6): wire readback into the loop.** Keep agent state GPU-resident across
+the Tier A chain; read back only what Tier B needs (positions for render + god
+hit-testing; energy/age/flags for reproduce/death). Open design point: conflict (Tier
+B) currently reuses sense's CPU neighbor cache — once sense is GPU-resident it needs its
+own neighbor source (its own hash query on the read-back positions, or a neighbor
+readback). Then crank the slider, profile, raise MAX_AGENTS.

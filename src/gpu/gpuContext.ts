@@ -12,10 +12,20 @@ import { HASH_WGSL } from "./shaders/hash.wgsl";
 import { SENSE_WGSL } from "./shaders/sense.wgsl";
 import { STEER_WGSL } from "./shaders/steer.wgsl";
 import { INTEGRATE_WGSL } from "./shaders/integrate.wgsl";
+import { METABOLISM_WGSL } from "./shaders/metabolism.wgsl";
 import { GENE_COUNT } from "../data/genome";
 import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H, WORLD_W, WORLD_H } from "../data/capacity";
 import { SIM } from "../data/sim";
+import { COSTS } from "../data/costs";
 import { TICK_DT } from "../core/time";
+
+/** Hazard zone params for the metabolism pass (from World.hazard). */
+export interface HazardParams {
+  active: boolean;
+  x: number;
+  y: number;
+  r2: number;
+}
 
 const WG = 64; // workgroup size for the per-agent/per-cell kernels (must match WGSL)
 /** Interleaved sense output stride: [kinX,kinY,kinCount,sepX,sepY,avoidX,avoidY]. */
@@ -104,6 +114,20 @@ export class GpuContext {
   private readonly intParamsHost = new ArrayBuffer(32);
   private readonly intParamsU32 = new Uint32Array(this.intParamsHost);
   private readonly intParamsF32 = new Float32Array(this.intParamsHost);
+
+  // --- energy / age buffers (persistent state; metabolism reads + writes them) ---
+  private readonly energyBuf: GPUBuffer;
+  private readonly ageBuf: GPUBuffer;
+
+  // --- metabolism pass (drain + age per-agent, atomic CAS-clamp resource intake) ---
+  private readonly metabParamsBuf: GPUBuffer;
+  private readonly energyRead: GPUBuffer;
+  private readonly ageRead: GPUBuffer;
+  private readonly metabBindGroup: GPUBindGroup;
+  private readonly pipeMetab: GPUComputePipeline;
+  private readonly metabParamsHost = new ArrayBuffer(80);
+  private readonly metabParamsU32 = new Uint32Array(this.metabParamsHost);
+  private readonly metabParamsF32 = new Float32Array(this.metabParamsHost);
 
   // Reused host-side scratch for the 32-byte Params upload (zero per-call alloc).
   private readonly paramsHost = new ArrayBuffer(32);
@@ -206,7 +230,8 @@ export class GpuContext {
     // --- steer pass: consumes senseOut + genes (resident) + the resource field ---
     this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
     this.steerParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC);
+    // COPY_DST too: integrate's verify uploads an explicit steer vector here.
+    this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     this.steerOutRead = buf(capacity * STEER_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
 
     const steerModule = dev.createShaderModule({ code: STEER_WGSL });
@@ -273,6 +298,46 @@ export class GpuContext {
         { binding: 5, resource: { buffer: this.steerOutBuf } },
         { binding: 6, resource: { buffer: this.genesBuf } },
         { binding: 7, resource: { buffer: this.intOutBuf } },
+      ],
+    });
+
+    // --- metabolism pass: per-agent drain/age + atomic resource intake (8 storage) ---
+    this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.ageBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.metabParamsBuf = buf(80, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.energyRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    this.ageRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+
+    const metabModule = dev.createShaderModule({ code: METABOLISM_WGSL });
+    const metabLayout = dev.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      ],
+    });
+    this.pipeMetab = dev.createComputePipeline({
+      layout: dev.createPipelineLayout({ bindGroupLayouts: [metabLayout] }),
+      compute: { module: metabModule, entryPoint: "metabolismMain" },
+    });
+    this.metabBindGroup = dev.createBindGroup({
+      layout: metabLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.metabParamsBuf } },
+        { binding: 1, resource: { buffer: this.posXBuf } },
+        { binding: 2, resource: { buffer: this.posYBuf } },
+        { binding: 3, resource: { buffer: this.velXBuf } },
+        { binding: 4, resource: { buffer: this.velYBuf } },
+        { binding: 5, resource: { buffer: this.genesBuf } },
+        { binding: 6, resource: { buffer: this.energyBuf } },
+        { binding: 7, resource: { buffer: this.ageBuf } },
+        { binding: 8, resource: { buffer: this.resourcesBuf } },
       ],
     });
   }
@@ -476,5 +541,81 @@ export class GpuContext {
     const out = new Float32Array(this.intOutRead.getMappedRange()).slice();
     this.intOutRead.unmap();
     return out;
+  }
+
+  /**
+   * Run the metabolism pass on an explicit input set. Uploads positions, velocities,
+   * genes, energy, age, and the resource field (f32 bit patterns the kernel treats as
+   * atomic<u32>); reads costs live from COSTS/SIM. The resource buffer is depleted in
+   * place by the atomic intake, so it is re-uploaded each call. Read with
+   * readMetabolism().
+   */
+  metabolismBuild(
+    posX: Float32Array,
+    posY: Float32Array,
+    velX: Float32Array,
+    velY: Float32Array,
+    genes: Float32Array,
+    energy: Float32Array,
+    age: Float32Array,
+    resources: Float32Array,
+    count: number,
+    hz: HazardParams,
+  ): void {
+    this.metabParamsU32[0] = count;
+    this.metabParamsU32[1] = RESOURCE_GRID_W;
+    this.metabParamsU32[2] = RESOURCE_GRID_H;
+    this.metabParamsU32[3] = hz.active ? 1 : 0;
+    this.metabParamsF32[4] = TICK_DT;
+    this.metabParamsF32[5] = COSTS.baseDrain;
+    this.metabParamsF32[6] = COSTS.sizeDrain;
+    this.metabParamsF32[7] = COSTS.moveCost;
+    this.metabParamsF32[8] = COSTS.senescenceDrain;
+    this.metabParamsF32[9] = COSTS.hazardDrain;
+    this.metabParamsF32[10] = COSTS.intakeRate;
+    this.metabParamsF32[11] = COSTS.intakeSizeExp;
+    this.metabParamsF32[12] = SIM.maxEnergyPerSize;
+    this.metabParamsF32[13] = RES_CELL_W;
+    this.metabParamsF32[14] = RES_CELL_H;
+    this.metabParamsF32[15] = hz.x;
+    this.metabParamsF32[16] = hz.y;
+    this.metabParamsF32[17] = hz.r2;
+    this.queue.writeBuffer(this.metabParamsBuf, 0, this.metabParamsHost);
+
+    if (count > 0) {
+      this.queue.writeBuffer(this.posXBuf, 0, posX as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.posYBuf, 0, posY as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.velXBuf, 0, velX as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.velYBuf, 0, velY as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.genesBuf, 0, genes as Float32Array<ArrayBuffer>, 0, count * GENE_COUNT);
+      this.queue.writeBuffer(this.energyBuf, 0, energy as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.ageBuf, 0, age as Float32Array<ArrayBuffer>, 0, count);
+    }
+    // The whole resource field (atomic f32 bits), re-uploaded since intake depletes it.
+    this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+
+    const enc = this.device.createCommandEncoder();
+    const pass = enc.beginComputePass();
+    pass.setBindGroup(0, this.metabBindGroup);
+    pass.setPipeline(this.pipeMetab);
+    pass.dispatchWorkgroups(Math.max(1, Math.ceil(count / WG)));
+    pass.end();
+    this.queue.submit([enc.finish()]);
+  }
+
+  /** Read the metabolism outputs back: fresh energy + age arrays (length capacity). */
+  async readMetabolism(): Promise<{ energy: Float32Array; age: Float32Array }> {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.energyBuf, 0, this.energyRead, 0, this.capacity * f32);
+    enc.copyBufferToBuffer(this.ageBuf, 0, this.ageRead, 0, this.capacity * f32);
+    this.queue.submit([enc.finish()]);
+    await this.energyRead.mapAsync(GPUMapMode.READ);
+    await this.ageRead.mapAsync(GPUMapMode.READ);
+    const energy = new Float32Array(this.energyRead.getMappedRange()).slice();
+    const age = new Float32Array(this.ageRead.getMappedRange()).slice();
+    this.energyRead.unmap();
+    this.ageRead.unmap();
+    return { energy, age };
   }
 }

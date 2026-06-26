@@ -32,8 +32,8 @@ const NODE_TEX_RADIUS = 16; // node texture radius (px); per-agent scale multipl
 const NODE_SCALE = 0.5; // SIZE gene → sprite scale
 const RES_MAX_ALPHA = 0.5; // a full resource cell's glow alpha
 const RES_TINT = 0x2ec86a; // food green
-const SPARK_TINT = 0xffc34d; // conflict flash
-const SPARK_DECAY = 0.08; // alpha lost per render frame (~12-frame flash)
+const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
+const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
 // Kin-edge cost guards.
 const EDGE_TINT = 0x00ffcc;
 const EDGE_ALPHA = 0.16;
@@ -90,9 +90,10 @@ export class NetRenderer {
     this.nodeContainer = nodePool.container;
     this.nodeParticles = nodePool.particles;
 
-    // --- spark pool ---
+    // --- spark pool --- a hollow ring so a contest reads as an expanding
+    // shockwave (an *event*), unmistakable against the filled organism discs.
     const sparkTex = this.app.renderer.generateTexture(
-      new Graphics().circle(0, 0, 6).fill(0xffffff),
+      new Graphics().circle(0, 0, 13).stroke({ width: 3, color: 0xffffff }),
     );
     const sparkPool = this.buildPool(sparkTex, MAX_SPARKS, { position: true, color: true });
     this.sparkContainer = sparkPool.container;
@@ -245,7 +246,7 @@ export class NetRenderer {
       } else {
         life[k] = nl;
         p.alpha = nl;
-        const s = 0.6 + (1 - nl) * 1.4; // expand as it fades
+        const s = 0.3 + (1 - nl) * 2.7; // expand outward (shockwave) as it fades
         p.scaleX = s;
         p.scaleY = s;
       }

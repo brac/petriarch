@@ -131,6 +131,10 @@ export class GpuContext {
   private readonly velXRead: GPUBuffer;
   private readonly velYRead: GPUBuffer;
   private readonly resourcesRead: GPUBuffer;
+  // One combined staging buffer: [posX|posY|velX|velY|energy|age|resources], each slice
+  // capacity-aligned. The loop's hot-path readback copies all of it back in ONE
+  // mapAsync (one CPU↔GPU sync point per tick instead of seven).
+  private readonly combinedRead: GPUBuffer;
 
   // --- energy / age buffers (persistent state; metabolism reads + writes them) ---
   private readonly energyBuf: GPUBuffer;
@@ -290,6 +294,7 @@ export class GpuContext {
     this.velXRead = readBuf(capacity * f32);
     this.velYRead = readBuf(capacity * f32);
     this.resourcesRead = readBuf(RES_CELLS * f32);
+    this.combinedRead = readBuf((6 * capacity + RES_CELLS) * f32);
 
     const intModule = dev.createShaderModule({ code: INTEGRATE_WGSL });
     const intLayout = dev.createBindGroupLayout({
@@ -780,5 +785,49 @@ export class GpuContext {
     const out = new Float32Array(this.resourcesRead.getMappedRange()).slice();
     this.resourcesRead.unmap();
     return out;
+  }
+
+  /**
+   * Loop hot-path readback: copy pos/vel/energy/age (+ resources) back into the
+   * provided destination arrays in ONE mapAsync, zero allocation. The destinations are
+   * the World's pools (reused), so nothing is allocated per tick. One CPU↔GPU sync.
+   */
+  async downloadAll(
+    posX: Float32Array,
+    posY: Float32Array,
+    velX: Float32Array,
+    velY: Float32Array,
+    energy: Float32Array,
+    age: Float32Array,
+    resources: Float32Array,
+    count: number,
+  ): Promise<void> {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const cap = this.capacity;
+    const enc = this.device.createCommandEncoder();
+    const n = count * f32;
+    if (count > 0) {
+      enc.copyBufferToBuffer(this.posXBuf, 0, this.combinedRead, 0 * cap * f32, n);
+      enc.copyBufferToBuffer(this.posYBuf, 0, this.combinedRead, 1 * cap * f32, n);
+      enc.copyBufferToBuffer(this.velXBuf, 0, this.combinedRead, 2 * cap * f32, n);
+      enc.copyBufferToBuffer(this.velYBuf, 0, this.combinedRead, 3 * cap * f32, n);
+      enc.copyBufferToBuffer(this.energyBuf, 0, this.combinedRead, 4 * cap * f32, n);
+      enc.copyBufferToBuffer(this.ageBuf, 0, this.combinedRead, 5 * cap * f32, n);
+    }
+    enc.copyBufferToBuffer(this.resourcesBuf, 0, this.combinedRead, 6 * cap * f32, RES_CELLS * f32);
+    this.queue.submit([enc.finish()]);
+
+    await this.combinedRead.mapAsync(GPUMapMode.READ);
+    const r = new Float32Array(this.combinedRead.getMappedRange());
+    if (count > 0) {
+      posX.set(r.subarray(0 * cap, 0 * cap + count));
+      posY.set(r.subarray(1 * cap, 1 * cap + count));
+      velX.set(r.subarray(2 * cap, 2 * cap + count));
+      velY.set(r.subarray(3 * cap, 3 * cap + count));
+      energy.set(r.subarray(4 * cap, 4 * cap + count));
+      age.set(r.subarray(5 * cap, 5 * cap + count));
+    }
+    resources.set(r.subarray(6 * cap, 6 * cap + RES_CELLS));
+    this.combinedRead.unmap();
   }
 }

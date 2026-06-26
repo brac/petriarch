@@ -223,8 +223,23 @@ GPU pop 813 / meanSIZE 1.596 vs CPU pop 760 / meanSIZE 1.623 (same equilibrium +
 differing only in chaotic detail = the GPU determinism domain).
 
 **The Tier A migration is functionally complete: every pass on the GPU, resident, and
-wired into a runnable loop.** Remaining is optimization, not correctness: this full-sync
-software-SwiftShader path is slower than CPU at small N — the win needs a real GPU and
-reduced per-tick sync (upload only birth deltas, read back only what Tier B needs, keep
-the agent pool GPU-resident across Tier B). Then crank intensity, profile, raise
-MAX_AGENTS.
+wired into a runnable loop.**
+
+**Step 7 — optimization pass (in progress).** Done so far:
+- **Single-mapAsync, zero-alloc readback** (`GpuContext.downloadAll`): the loop's
+  per-tick readback (pos/vel/energy/age + resources) is copied into one combined staging
+  buffer and mapped in ONE `mapAsync` straight into the World pools — one CPU↔GPU sync
+  point per tick instead of seven, and no per-tick allocation. This is the lever that
+  matters when slamming sim-speed (many ticks/frame, each previously a stall).
+- **`MAX_AGENTS` 5000 → 20000** for real GPU headroom; regrowth dev-slider widened to
+  0.6 so the population can actually grow to load the GPU.
+- The GPU pump feeds its own step-ms / fps into the perf overlay (the stopped CPU loop's
+  timing would otherwise be stale), so GPU mode is profilable headful.
+
+Still on the table if the GPU walls: genes/state are re-uploaded wholesale each tick —
+could upload only birth deltas; and the agent pool round-trips because Tier B
+(conflict/reproduce/death) owns the swap-remove/spawn structure on CPU — keeping the pool
+GPU-resident and applying Tier B's structural ops to GPU buffers would remove the
+round-trip but is a larger redesign. NOTE: at high N the wall is likely **CPU Tier B**
+(conflict's per-agent neighbor queries + hash build + O(n) reproduce/death), not the GPU
+or the sync — profile on real hardware to confirm before optimizing further.

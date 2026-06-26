@@ -2,8 +2,10 @@
 // MAX_AGENTS here and nowhere else (CLAUDE.md rule 9). Code reads data; you edit
 // data. Several values are PLACEHOLDERS to be calibrated in Milestone 1 (noted).
 
-/** Pool capacity. Every typed array allocates to this. One number to change. */
-export const MAX_AGENTS = 5000;
+/** Pool capacity. Every typed array allocates to this. One number to change.
+ * 20000 gives the GPU path real headroom on a discrete GPU; raise further to stress
+ * it (CPU Tier B — conflict/reproduce/death/hash — becomes the wall before the GPU). */
+export const MAX_AGENTS = 20000;
 
 /** World is authored at a fixed size; the renderer letterboxes it to the window. */
 export const WORLD_W = 1920;

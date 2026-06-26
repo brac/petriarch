@@ -80,18 +80,31 @@ function main(): void {
   let gpu: GpuContext | null = null;
   let gpuTried = false;
   let pumpScheduled = false;
+  let lastFrameT = 0;
 
-  const gpuFrame = async (): Promise<void> => {
+  // Drive the GPU sim + feed timing into the existing perf overlay (loop.* fields), so
+  // the overlay reports GPU step cost / fps instead of the stopped CPU loop's stale ones.
+  const gpuFrame = (now: number): void => {
     if (!gpuMode || !gpu) {
       pumpScheduled = false;
       return;
     }
-    const speed = Math.max(0, Math.round(loop.simSpeed)); // simSpeed 0 → paused (render only)
-    for (let i = 0; i < speed; i++) await simStepGpu(world, gpu);
-    renderer.render(world, 0);
-    perf.update(loop, world.agents.count);
-    hud.update();
-    requestAnimationFrame(() => void gpuFrame());
+    const dev = gpu;
+    void (async () => {
+      const speed = Math.max(0, Math.round(loop.simSpeed)); // simSpeed 0 → paused (render only)
+      const t0 = performance.now();
+      for (let i = 0; i < speed; i++) await simStepGpu(world, dev);
+      loop.updateMs = performance.now() - t0;
+      loop.ticksLastFrame = speed;
+      const r0 = performance.now();
+      renderer.render(world, 0);
+      loop.renderMs = performance.now() - r0;
+      if (lastFrameT) loop.fps = 1000 / (now - lastFrameT);
+      lastFrameT = now;
+      perf.update(loop, world.agents.count);
+      hud.update();
+      requestAnimationFrame(gpuFrame);
+    })();
   };
 
   const toggleGpu = async (): Promise<void> => {
@@ -111,7 +124,8 @@ function main(): void {
       console.info("Petriarch: GPU sim ON");
       if (!pumpScheduled) {
         pumpScheduled = true;
-        void gpuFrame();
+        lastFrameT = 0;
+        requestAnimationFrame(gpuFrame);
       }
     } else {
       gpuMode = false;

@@ -28,7 +28,7 @@ interface Tunable {
 }
 
 const TUNABLES: Tunable[] = [
-  { group: "Food", label: "regrowth", min: 0, max: 0.15, step: 0.001, get: () => RESOURCES.regrowthRate, set: (v) => { RESOURCES.regrowthRate = v; } },
+  { group: "Food", label: "regrowth", min: 0, max: 0.6, step: 0.002, get: () => RESOURCES.regrowthRate, set: (v) => { RESOURCES.regrowthRate = v; } },
 
   { group: "Metabolism", label: "baseDrain", min: 0, max: 0.2, step: 0.005, get: () => COSTS.baseDrain, set: (v) => { COSTS.baseDrain = v; } },
   { group: "Metabolism", label: "intakeRate", min: 0.2, max: 3, step: 0.05, get: () => COSTS.intakeRate, set: (v) => { COSTS.intakeRate = v; } },

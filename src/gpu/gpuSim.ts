@@ -48,15 +48,8 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
 
     gpu.runTierA(count, true, world.tick, senseP, hazP); // 2-5 — Tier A resident chain
 
-    const s = await gpu.downloadState();
-    const res = await gpu.downloadResources();
-    a.posX.set(s.posX.subarray(0, count));
-    a.posY.set(s.posY.subarray(0, count));
-    a.velX.set(s.velX.subarray(0, count));
-    a.velY.set(s.velY.subarray(0, count));
-    a.energy.set(s.energy.subarray(0, count));
-    a.age.set(s.age.subarray(0, count));
-    world.resources.set(res);
+    // One combined, zero-alloc readback straight into the world pools (one sync point).
+    await gpu.downloadAll(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, world.resources, count);
   }
 
   // Tier B on the read-back state. conflict does its OWN hash query (no GPU neighbor

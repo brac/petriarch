@@ -13,6 +13,9 @@ import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
+import { GpuContext } from "../gpu/gpuContext";
+import { verifyHash } from "../gpu/verify";
+import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
 
 interface Tunable {
   group: string;
@@ -156,5 +159,50 @@ export class DevPanel {
     load.addEventListener("click", () => fileInput.click());
     body.appendChild(load);
     body.appendChild(fileInput);
+
+    // --- GPU (WebGPU migration bring-up) ---
+    const gpuGroup = document.createElement("div");
+    gpuGroup.className = "dp-group";
+    gpuGroup.textContent = "GPU";
+    body.appendChild(gpuGroup);
+
+    const gpuStatus = document.createElement("div");
+    gpuStatus.className = "dp-val";
+    gpuStatus.style.whiteSpace = "pre-wrap";
+    gpuStatus.textContent = "(not initialized)";
+
+    let gpu: GpuContext | null = null;
+    let gpuTried = false;
+
+    const verify = document.createElement("button");
+    verify.className = "dp-reset";
+    verify.textContent = "verify GPU hash";
+    verify.addEventListener("click", () => {
+      verify.disabled = true;
+      gpuStatus.textContent = "running…";
+      void (async () => {
+        try {
+          if (!gpu && !gpuTried) {
+            gpuTried = true;
+            gpu = await GpuContext.create(HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS);
+          }
+          if (!gpu) {
+            gpuStatus.textContent = "WebGPU unavailable";
+            return;
+          }
+          const r = await verifyHash(world, gpu);
+          gpuStatus.textContent =
+            `${r.ok ? "✓ MATCH" : "✗ MISMATCH"}  n=${r.count} cells=${r.numCells}\n` +
+            `cellStart diffs: ${r.cellStartMismatches}  set diffs: ${r.cellSetMismatches}` +
+            (r.notes.length ? "\n" + r.notes.join("\n") : "");
+        } catch (err) {
+          gpuStatus.textContent = "error: " + (err instanceof Error ? err.message : String(err));
+        } finally {
+          verify.disabled = false;
+        }
+      })();
+    });
+    body.appendChild(verify);
+    body.appendChild(gpuStatus);
   }
 }

@@ -1,0 +1,30 @@
+// WebGPU device acquisition — a parallel compute context for the simulation only.
+// Rendering stays on PixiJS/WebGL (docs/webgpu-migration §intent); this device is
+// independent of Pixi's renderer. The whole sim must still run with NO WebGPU
+// (most machines, and headless), so this returns null on any failure and callers
+// fall back to the CPU Tier A passes (the golden reference).
+
+export interface GpuDevice {
+  readonly device: GPUDevice;
+  readonly queue: GPUQueue;
+}
+
+/**
+ * Try to acquire a compute-capable WebGPU device. Returns null (never throws) if
+ * WebGPU is unavailable or adapter/device request fails — the caller stays on CPU.
+ */
+export async function acquireGpuDevice(): Promise<GpuDevice | null> {
+  // navigator.gpu is absent on browsers without WebGPU and in Node/headless.
+  const gpu: GPU | undefined = (globalThis.navigator as Navigator | undefined)?.gpu;
+  if (!gpu) return null;
+
+  try {
+    const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return null;
+    const device = await adapter.requestDevice();
+    if (!device) return null;
+    return { device, queue: device.queue };
+  } catch {
+    return null;
+  }
+}

@@ -87,3 +87,28 @@ On CPU at milestone 1 these tune to stay at frame budget headful. Post-port, max
 6. Crank the slider; profile; raise `MAX_AGENTS`.
 
 Do **not** start the port until milestone 1 is watchable and the tooling exists — the buffer-contract discipline means you lose nothing by waiting, and you gain a CPU golden reference to verify the GPU against.
+
+---
+
+## Progress
+
+**Step 3 — spatial hash (bring-up, in progress).** The counting-sort grid is ported
+to four compute kernels (`src/gpu/shaders/hash.wgsl.ts`: `clearCells` / `count` /
+`scan` / `scatter`) hosted by `src/gpu/gpuContext.ts` (owns the device + buffers at
+capacity) over `src/gpu/device.ts` (graceful-null device acquisition — no WebGPU ⇒
+stay on CPU). The cell math is byte-for-byte the CPU's `clampCX/clampCY`, so
+`cellStart` comes out identical to the reference; only the order of indices *within*
+a cell differs (atomic scatter), which the contract permits.
+
+Verification: `src/gpu/verify.ts` + a **"verify GPU hash"** button in the dev panel
+build the CPU and GPU grids from the same live positions and compare `cellStart`
+exactly and each cell's index set as a multiset. WebGPU can't run in the WSL/vite-node
+toolchain, so this runs **headful**. The kernel *algorithm* was separately validated
+against the CPU reference in Node (a TS reimplementation of the kernels) across seeds
+and step counts — all exact; what the in-browser button confirms is the WGSL
+compilation + GPU atomic execution. The GPU path is isolated behind the button and
+does **not** touch the sim loop yet; the CPU path is unchanged.
+
+**Next:** confirm the button passes on real hardware, then keep grid state resident on
+the GPU and port `sense` reading it, then `steer` → `integrate` → `metabolism`, each
+verified against the CPU pass before wiring readback into the loop.

@@ -72,12 +72,12 @@ pause, and the headless trigger.
 3. **Conflict frequency reads low once tribes segregate** — sparks fall off as tribes
    form territories (emergent, not a bug). Consider a subtle persistent "frontier"
    highlight so a cold border still reads, not just live sparks.
-4. **Intensity mildly affects evolution, not just perf.** `conflict` runs at the
-   think cadence (a CPU win), so at low intensity (higher `THINK_INTERVAL`) contests
-   resolve less often → weaker predation selection → less SIZE diversity (e.g. ~0%
-   big at 55% vs 2–18% at full). Acceptable tradeoff for now; future options: run
-   conflict every tick again (costs the extra broadphase), or scale its rolls by the
-   think interval so per-tick conflict pressure is intensity-invariant.
+4. ~~**Intensity mildly affects evolution, not just perf.**~~ DONE. `conflict` now
+   runs EVERY tick (intensity-invariant cadence): it reuses sense's neighbor cache on
+   think ticks and does its own cheap query (food-gated subset) on other ticks — only
+   ~0.4–1.2ms/tick. Full-intensity behavior is unchanged. Residual variation in SIZE
+   diversity across runs is seed/drift-dominated (frequency-dependent), not a
+   systematic intensity bias — intensity is now close to a pure perf knob.
 
 ---
 

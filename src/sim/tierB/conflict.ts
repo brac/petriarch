@@ -12,12 +12,18 @@ import { CONFLICT } from "../../data/conflict";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
 import { resCellIndex } from "../grid";
 
-// Runs on think ticks only, reusing the neighbor cache sense just built (no second
-// broadphase walk). `world` is read; nothing is allocated.
-export function conflict(world: World): void {
+// Reused scratch for the own-query (non-think-tick) path — zero alloc per call.
+const ownNbr: number[] = [];
+
+// Runs EVERY tick so conflict pressure is intensity-invariant (it no longer rides
+// on the think cadence). On a think tick it reuses the neighbor cache sense just
+// built (`useCache`); on other ticks it does its own cheap hash query — but only
+// for the agents actually standing on contestable food, so the cost is bounded.
+export function conflict(world: World, useCache: boolean): void {
   const a = world.agents;
   const { posX, posY, energy, genes, fightCd, count, neighborList, neighborCount } = a;
   const res = world.resources;
+  const hash = world.hash;
   const rng = world.rng;
   const sparks = world.sparks;
 
@@ -25,14 +31,10 @@ export function conflict(world: World): void {
   const sigT = SIM.sigThreshold;
   const aggT = CONFLICT.aggressionThreshold;
   const maxSparks = sparks.x.length;
-  // Ticks elapsed since the last conflict pass (it runs at the think cadence), so
-  // the cooldown stays denominated in real ticks regardless of intensity.
-  const dec = world.intensity.thinkInterval;
 
-  // Tick down fight cooldowns by the elapsed ticks.
+  // Cooldowns tick down by 1 (conflict runs every tick) — real-tick denominated.
   for (let i = 0; i < count; i++) {
-    const cd = fightCd[i]!;
-    if (cd > 0) fightCd[i] = cd > dec ? cd - dec : 0;
+    if (fightCd[i]! > 0) fightCd[i] = fightCd[i]! - 1;
   }
 
   for (let i = 0; i < count; i++) {
@@ -49,11 +51,22 @@ export function conflict(world: World): void {
     const aggi = genes[bi + GENE.AGGRESSION]!;
     const sizi = genes[bi + GENE.SIZE]!;
 
-    // Reuse sense's neighbor scan instead of re-querying the hash.
-    const nbase = i * NEIGHBOR_STRIDE;
-    const nc = neighborCount[i]!;
+    // Neighbor source: sense's cache on think ticks, else a fresh query.
+    let nbase: number;
+    let nc: number;
+    let list: Int32Array | number[];
+    if (useCache) {
+      nbase = i * NEIGHBOR_STRIDE;
+      nc = neighborCount[i]!;
+      list = neighborList;
+    } else {
+      hash.queryNeighbors(xi, yi, ownNbr);
+      nbase = 0;
+      nc = ownNbr.length;
+      list = ownNbr;
+    }
     for (let k = 0; k < nc; k++) {
-      const j = neighborList[nbase + k]!;
+      const j = list[nbase + k]!;
       if (j <= i) continue; // each unordered pair once; also skips self
       if (fightCd[j]! > 0) continue;
       const dx = posX[j]! - xi;

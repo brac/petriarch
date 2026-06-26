@@ -79,9 +79,10 @@ function main(): void {
 
       integrate(world); // 4 — apply steering, move (Tier A, every tick)
       metabolism(world); // 5 — energy drain + intake (Tier A, every tick)
-      // 6 — contests at resource sites (Tier B). Runs at the think cadence so it
-      // can reuse the neighbor cache sense just built (no second broadphase walk).
-      if (didThink) conflict(world);
+      // 6 — contests at resource sites (Tier B). Runs EVERY tick so conflict
+      // pressure is intensity-invariant; reuses sense's neighbor cache on think
+      // ticks (didThink), else does its own cheap query for the food-subset.
+      conflict(world, didThink);
       reproduce(world); // 7 — energy-threshold births into free slots (Tier B)
       death(world); // 8 — starvation / senescence swap-remove (Tier B)
 

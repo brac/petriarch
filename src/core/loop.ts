@@ -18,6 +18,10 @@ import { TICK_DT } from "./time";
 // rather than spiral trying to catch up (spiral-of-death guard). At simSpeed > 1
 // the cap scales so fast-forward can fire extra ticks per frame.
 const MAX_TICKS_PER_FRAME = 8;
+// Hard ceiling on ticks/frame at ANY sim-speed. Past this, fast-forward visibly
+// slows down rather than running e.g. 64 sequential heavy ticks (the chug). At
+// 60fps this still keeps up with the 8× slider; raise it to allow faster runs.
+const MAX_TICKS_HARD = 16;
 
 export class Loop {
   private accumulator = 0;
@@ -66,8 +70,11 @@ export class Loop {
     // (rawFrameTime stays real for fps; only the sim accumulator is scaled.)
     this.accumulator += rawFrameTime * this.simSpeed;
 
-    // --- fixed logic ticks --- (cap scales with simSpeed so fast-forward works)
-    const cap = MAX_TICKS_PER_FRAME * Math.max(1, Math.round(this.simSpeed));
+    // --- fixed logic ticks --- (cap scales with simSpeed, then a hard ceiling)
+    const cap = Math.min(
+      MAX_TICKS_HARD,
+      MAX_TICKS_PER_FRAME * Math.max(1, Math.round(this.simSpeed)),
+    );
     let ticks = 0;
     const t0 = performance.now();
     while (this.accumulator >= TICK_DT && ticks < cap) {

@@ -9,16 +9,15 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
+import { NEIGHBOR_STRIDE } from "../../state/pools";
 import { resCellIndex } from "../grid";
 
-// Reused neighbor scratch (zero alloc per call).
-const neighbors: number[] = [];
-
+// Runs on think ticks only, reusing the neighbor cache sense just built (no second
+// broadphase walk). `world` is read; nothing is allocated.
 export function conflict(world: World): void {
   const a = world.agents;
-  const { posX, posY, energy, genes, fightCd, count } = a;
+  const { posX, posY, energy, genes, fightCd, count, neighborList, neighborCount } = a;
   const res = world.resources;
-  const hash = world.hash;
   const rng = world.rng;
   const sparks = world.sparks;
 
@@ -26,10 +25,14 @@ export function conflict(world: World): void {
   const sigT = SIM.sigThreshold;
   const aggT = CONFLICT.aggressionThreshold;
   const maxSparks = sparks.x.length;
+  // Ticks elapsed since the last conflict pass (it runs at the think cadence), so
+  // the cooldown stays denominated in real ticks regardless of intensity.
+  const dec = world.intensity.thinkInterval;
 
-  // Tick down fight cooldowns.
+  // Tick down fight cooldowns by the elapsed ticks.
   for (let i = 0; i < count; i++) {
-    if (fightCd[i]! > 0) fightCd[i] = fightCd[i]! - 1;
+    const cd = fightCd[i]!;
+    if (cd > 0) fightCd[i] = cd > dec ? cd - dec : 0;
   }
 
   for (let i = 0; i < count; i++) {
@@ -46,10 +49,11 @@ export function conflict(world: World): void {
     const aggi = genes[bi + GENE.AGGRESSION]!;
     const sizi = genes[bi + GENE.SIZE]!;
 
-    hash.queryNeighbors(xi, yi, neighbors);
-    const m = neighbors.length;
-    for (let k = 0; k < m; k++) {
-      const j = neighbors[k]!;
+    // Reuse sense's neighbor scan instead of re-querying the hash.
+    const nbase = i * NEIGHBOR_STRIDE;
+    const nc = neighborCount[i]!;
+    for (let k = 0; k < nc; k++) {
+      const j = neighborList[nbase + k]!;
       if (j <= i) continue; // each unordered pair once; also skips self
       if (fightCd[j]! > 0) continue;
       const dx = posX[j]! - xi;

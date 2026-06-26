@@ -69,15 +69,19 @@ function main(): void {
       resources(world); // 1 — deplete/regrow the field (Tier B)
 
       // 2-3 — think every THINK_INTERVAL ticks; steer output is cached between.
+      let didThink = false;
       if (++world.thinkTimer >= world.intensity.thinkInterval) {
         world.thinkTimer = 0;
+        didThink = true;
         sense(world);
         steer(world);
       }
 
       integrate(world); // 4 — apply steering, move (Tier A, every tick)
       metabolism(world); // 5 — energy drain + intake (Tier A, every tick)
-      conflict(world); // 6 — contests at resource sites (Tier B)
+      // 6 — contests at resource sites (Tier B). Runs at the think cadence so it
+      // can reuse the neighbor cache sense just built (no second broadphase walk).
+      if (didThink) conflict(world);
       reproduce(world); // 7 — energy-threshold births into free slots (Tier B)
       death(world); // 8 — starvation / senescence swap-remove (Tier B)
 

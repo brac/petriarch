@@ -7,13 +7,14 @@
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
+import { NEIGHBOR_STRIDE } from "../../state/pools";
 
 // Reused scratch for the neighbor query — grown once, never per-call (zero alloc).
 const neighbors: number[] = [];
 
 export function sense(world: World): void {
   const a = world.agents;
-  const { posX, posY, genes, count } = a;
+  const { posX, posY, genes, count, neighborList, neighborCount } = a;
   const hash = world.hash;
   const budget = world.intensity.neighborBudget;
   const senseR2 = SIM.senseRadius * SIM.senseRadius;
@@ -38,6 +39,7 @@ export function sense(world: World): void {
 
     hash.queryNeighbors(xi, yi, neighbors);
     const m = neighbors.length;
+    const nbase = i * NEIGHBOR_STRIDE;
     let sampled = 0;
     for (let k = 0; k < m; k++) {
       const j = neighbors[k]!;
@@ -47,6 +49,8 @@ export function sense(world: World): void {
       const d2 = dx * dx + dy * dy;
       if (d2 > senseR2) continue;
       if (++sampled > budget) break;
+      // Record this neighbor in the shared cache for conflict to reuse.
+      neighborList[nbase + sampled - 1] = j;
 
       const bj = j * GENE_COUNT;
       const dsa = genes[bj + GENE.SIG_A]! - sa;
@@ -82,5 +86,6 @@ export function sense(world: World): void {
     a.senseSepY[i] = sepY;
     a.senseAvoidX[i] = avoidX;
     a.senseAvoidY[i] = avoidY;
+    neighborCount[i] = sampled > budget ? budget : sampled;
   }
 }

@@ -9,6 +9,10 @@
 // genes[i*GENE_COUNT + GENE.X] (docs/genome.md — the WebGPU buffer contract).
 
 import { GENE_COUNT } from "../data/genome";
+import { NEIGHBOR_BUDGET_MAX } from "../data/capacity";
+
+// Fixed stride of the shared neighbor cache (the max neighbors sense ever samples).
+export const NEIGHBOR_STRIDE = NEIGHBOR_BUDGET_MAX;
 
 export class Agents {
   readonly capacity: number;
@@ -40,6 +44,12 @@ export class Agents {
   readonly senseSepY: Float32Array;
   readonly senseAvoidX: Float32Array;
   readonly senseAvoidY: Float32Array;
+  // Shared neighbor cache: sense records each agent's sampled neighbor indices
+  // (flat, NEIGHBOR_STRIDE per agent) so conflict reuses the same scan instead of
+  // re-querying the hash. Valid only within a think tick (sense → … → conflict,
+  // before any birth/death), so it is never swapped on kill.
+  readonly neighborCount: Int32Array;
+  readonly neighborList: Int32Array;
 
   // --- flat genome buffer (GENE_COUNT floats per agent) ---
   readonly genes: Float32Array;
@@ -64,6 +74,8 @@ export class Agents {
     this.senseSepY = new Float32Array(capacity);
     this.senseAvoidX = new Float32Array(capacity);
     this.senseAvoidY = new Float32Array(capacity);
+    this.neighborCount = new Int32Array(capacity);
+    this.neighborList = new Int32Array(capacity * NEIGHBOR_STRIDE);
     this.genes = new Float32Array(capacity * GENE_COUNT);
   }
 
@@ -86,6 +98,7 @@ export class Agents {
     this.lineageId[i] = lineageId;
     this.alive[i] = 1;
     this.fightCd[i] = 0;
+    this.neighborCount[i] = 0;
     return i;
   }
 

@@ -20,6 +20,7 @@ export function steer(world: World): void {
   const a = world.agents;
   const { posX, posY, genes, steerX, steerY, count } = a;
   const res = world.resources;
+  const danger = world.danger;
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
   const gh = RESOURCE_GRID_H;
@@ -33,6 +34,7 @@ export function steer(world: World): void {
   const onSep = (mask & COG.SEP) !== 0;
   const onAvoid = (mask & COG.AVOID) !== 0;
   const onWander = (mask & COG.WANDER) !== 0;
+  const onDanger = (mask & COG.DANGER) !== 0;
 
   for (let i = 0; i < count; i++) {
     const bi = i * GENE_COUNT;
@@ -112,6 +114,35 @@ export function steer(world: World): void {
       }
     }
 
+    // --- danger gradient: DESCEND (flee toward the safer of the 4-neighbor cells) ---
+    // (DANGER off => skip the 4 danger-cell samples entirely)
+    let dgx = 0;
+    let dgy = 0;
+    if (onDanger) {
+      let cx = (xi / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= gw) cx = gw - 1;
+      let cy = (yi / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= gh) cy = gh - 1;
+      const xl = cx > 0 ? cx - 1 : cx;
+      const xr = cx < gw - 1 ? cx + 1 : cx;
+      const yu = cy > 0 ? cy - 1 : cy;
+      const yd = cy < gh - 1 ? cy + 1 : cy;
+      const rowc = cy * gw;
+      // negate the ascent gradient → point away from rising danger
+      dgx = danger[rowc + xl]! - danger[rowc + xr]!;
+      dgy = danger[yu * gw + cx]! - danger[yd * gw + cx]!;
+      const l = Math.sqrt(dgx * dgx + dgy * dgy);
+      if (l > 1e-4) {
+        dgx /= l;
+        dgy /= l;
+      } else {
+        dgx = 0;
+        dgy = 0;
+      }
+    }
+
     // --- wander: a seeded unit vector. Always advance the shared RNG stream so it
     // stays deterministic regardless of the WANDER toggle; gate the contribution. ---
     const ang = rng.next() * TAU;
@@ -123,10 +154,13 @@ export function steer(world: World): void {
     const se = onSep ? genes[bi + GENE.SEPARATION]! * level : 0;
     const ra = onFood ? genes[bi + GENE.RESOURCE_ATTRACT]! * level : 0;
     const ta = onAvoid ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
+    // danger descent shares the THREAT_AVOID gene (fearfulness); aggressive lineages
+    // evolve low THREAT_AVOID → ignore death zones (the doc's aggression-gating).
+    const da = onDanger ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
-    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + wa * wx;
-    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + wa * wy;
+    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + wa * wx;
+    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + wa * wy;
 
     const l = Math.sqrt(dx * dx + dy * dy);
     if (l > 1e-4) {

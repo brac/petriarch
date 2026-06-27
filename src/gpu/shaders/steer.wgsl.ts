@@ -29,6 +29,7 @@ const COG_KIN    = 2u;
 const COG_SEP    = 4u;
 const COG_AVOID  = 8u;
 const COG_WANDER = 16u;
+const COG_DANGER = 32u;
 
 struct Params {
   count    : u32,
@@ -48,6 +49,7 @@ struct Params {
 @group(0) @binding(4) var<storage, read>       senseOut : array<f32>;
 @group(0) @binding(5) var<storage, read>       res      : array<f32>;
 @group(0) @binding(6) var<storage, read_write> steerOut : array<f32>;
+@group(0) @binding(7) var<storage, read>       danger   : array<f32>;
 
 fn hashU32(x: u32) -> u32 {
   var v = x;
@@ -116,6 +118,27 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (l > 1e-4) { rgx = rgx / l; rgy = rgy / l; } else { rgx = 0.0; rgy = 0.0; }
   }
 
+  // --- danger gradient: DESCEND (flee toward the safer of the 4-neighbor cells) ---
+  let onDanger = (P.cogMask & COG_DANGER) != 0u;
+  var dgx = 0.0;
+  var dgy = 0.0;
+  if (onDanger) {
+    let gw = i32(P.resGridW);
+    let gh = i32(P.resGridH);
+    var cx = clamp(i32(floor(xi / P.resCellW)), 0, gw - 1);
+    var cy = clamp(i32(floor(yi / P.resCellH)), 0, gh - 1);
+    let xl = select(cx, cx - 1, cx > 0);
+    let xr = select(cx, cx + 1, cx < gw - 1);
+    let yu = select(cy, cy - 1, cy > 0);
+    let yd = select(cy, cy + 1, cy < gh - 1);
+    let rowc = cy * gw;
+    // negate the ascent gradient → point away from rising danger
+    dgx = danger[u32(rowc + xl)] - danger[u32(rowc + xr)];
+    dgy = danger[u32(yu * gw + cx)] - danger[u32(yd * gw + cx)];
+    let l = sqrt(dgx * dgx + dgy * dgy);
+    if (l > 1e-4) { dgx = dgx / l; dgy = dgy / l; } else { dgx = 0.0; dgy = 0.0; }
+  }
+
   // --- wander: a per-agent seeded unit vector (GPU determinism domain) ---
   let h = hashU32((i * 2654435761u) ^ P.seed);
   let ang = (f32(h) / 4294967296.0) * TAU;
@@ -129,10 +152,13 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let se = select(0.0, genes[bi + G_SE] * lvl, (P.cogMask & COG_SEP) != 0u);
   let ra = select(0.0, genes[bi + G_RA] * lvl, onFood);
   let ta = select(0.0, genes[bi + G_TA] * lvl, (P.cogMask & COG_AVOID) != 0u);
+  // danger descent shares THREAT_AVOID (fearfulness); aggressive lineages evolve low
+  // THREAT_AVOID → ignore death zones.
+  let da = select(0.0, genes[bi + G_TA] * lvl, onDanger);
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
-  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + wa * wx;
-  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + wa * wy;
+  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + wa * wx;
+  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + wa * wy;
   let l = sqrt(dx * dx + dy * dy);
   if (l > 1e-4) { dx = dx / l; dy = dy / l; } else { dx = 0.0; dy = 0.0; }
 

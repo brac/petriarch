@@ -265,9 +265,11 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   world.rng.setState(rngState);
 
   // GPU: grid → sense → steer on the frozen snapshot (wander zeroed in snapGenes).
+  // danger is frozen too so GPU reads the same field the CPU steer just read.
+  const snapDanger = world.danger.slice();
   gpu.buildHash(snapX, snapY, count);
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
-  gpu.steerBuild(snapRes, count, world.tick);
+  gpu.steerBuild(snapRes, snapDanger, count, world.tick);
   const gs = await gpu.readSteer();
 
   let compared = 0;

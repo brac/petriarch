@@ -104,8 +104,9 @@ export class GpuContext {
   private readonly senseParamsU32 = new Uint32Array(this.senseParamsHost);
   private readonly senseParamsF32 = new Float32Array(this.senseParamsHost);
 
-  // --- steer pass (reads senseOut + genes + resource field; writes steer vectors) ---
+  // --- steer pass (reads senseOut + genes + resource + danger fields; writes steer) ---
   private readonly resourcesBuf: GPUBuffer;
+  private readonly dangerBuf: GPUBuffer;
   private readonly steerParamsBuf: GPUBuffer;
   private readonly steerOutBuf: GPUBuffer;
   private readonly steerOutRead: GPUBuffer;
@@ -250,8 +251,9 @@ export class GpuContext {
       ],
     });
 
-    // --- steer pass: consumes senseOut + genes (resident) + the resource field ---
+    // --- steer pass: consumes senseOut + genes (resident) + resource + danger fields ---
     this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
     this.steerParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
@@ -267,6 +269,7 @@ export class GpuContext {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeSteer = dev.createComputePipeline({
@@ -283,6 +286,7 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.senseOutBuf } },
         { binding: 5, resource: { buffer: this.resourcesBuf } },
         { binding: 6, resource: { buffer: this.steerOutBuf } },
+        { binding: 7, resource: { buffer: this.dangerBuf } },
       ],
     });
 
@@ -549,9 +553,10 @@ export class GpuContext {
    * dispatches; output read with readSteer(). `seed` drives the per-agent wander RNG
    * (the GPU's own determinism domain — pass the sim tick).
    */
-  steerBuild(resources: Float32Array, count: number, seed: number): void {
+  steerBuild(resources: Float32Array, danger: Float32Array, count: number, seed: number): void {
     this.writeSteerParams(count, seed);
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
 
     const enc = this.device.createCommandEncoder();
     const pass = enc.beginComputePass();
@@ -721,6 +726,11 @@ export class GpuContext {
   /** Upload the resource field (f32 bits; metabolism's atomic intake depletes it). */
   uploadResources(resources: Float32Array): void {
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload the danger field (read-only; steer descends its gradient). */
+  uploadDanger(danger: Float32Array): void {
+    this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
   }
 
   /**

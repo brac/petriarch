@@ -11,18 +11,20 @@
 //
 // Weight source is Genes × level: each term's weight is its evolved gene times
 // `level` (wander excepted). So `level=1, mask=all` is algebraically identical to
-// the pre-Ant-rung blend — no regression. New terms (trail/claim/danger) get
-// appended here when the stigmergy substrate lands.
+// the pre-Ant-rung blend — no regression. New terms (trail) get appended here as
+// the stigmergy substrate grows; DANGER (descend the death-marked field) landed
+// with the danger channel, weighted by the same THREAT_AVOID gene as AVOID.
 
 export const COG = {
   FOOD: 1 << 0, // resource gradient (RESOURCE_ATTRACT)
   KIN: 1 << 1, // kin cohesion (KIN_COHESION)
   SEP: 1 << 2, // separation (SEPARATION)
-  AVOID: 1 << 3, // threat avoidance (THREAT_AVOID)
+  AVOID: 1 << 3, // threat avoidance — dissimilar/aggressive neighbors (THREAT_AVOID)
   WANDER: 1 << 4, // seeded random wander (WANDER)
+  DANGER: 1 << 5, // stigmergy danger-field descend — flee death zones (THREAT_AVOID)
 } as const;
 
-export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER;
+export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER | COG.DANGER;
 
 /** Mutated live by HUD slider / dev-panel toggles / preset buttons. */
 export const COGNITION = {
@@ -34,6 +36,6 @@ export type CogPreset = { level: number; mask: number };
 
 export const COG_PRESETS: Record<"worm" | "ant" | "full", CogPreset> = {
   worm: { level: 0.0, mask: COG.WANDER }, // random walk only
-  ant: { level: 0.8, mask: COG.FOOD | COG.AVOID | COG.WANDER }, // climb food, flee threat
+  ant: { level: 0.8, mask: COG.FOOD | COG.DANGER | COG.WANDER }, // climb food, flee death zones
   full: { level: 1.0, mask: COG_ALL }, // every evolved term at full ceiling
 };

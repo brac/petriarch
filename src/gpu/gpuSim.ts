@@ -51,6 +51,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   if (count > 0) {
     gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);
     gpu.uploadResources(world.resources);
+    gpu.uploadDanger(world.danger);
 
     const senseP = {
       budget: world.intensity.neighborBudget,
@@ -142,6 +143,7 @@ export class GpuPipeline {
     if (count > 0) {
       this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);
       this.gpu.uploadResources(world.resources);
+      this.gpu.uploadDanger(world.danger);
       const senseP = {
         budget: world.intensity.neighborBudget,
         senseR2: SIM.senseRadius * SIM.senseRadius,

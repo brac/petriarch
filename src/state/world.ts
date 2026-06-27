@@ -58,6 +58,9 @@ export interface World {
   readonly claimSigA: Float32Array;
   readonly claimSigB: Float32Array;
   readonly claimSigC: Float32Array;
+  // Stigmergy `danger` field — deposited on death (death.ts), diffused/decayed by
+  // tierB/stigmergy.ts, read by steer as a descend gradient (flee). Same grid.
+  readonly danger: Float32Array;
   readonly hazard: Hazard;
   readonly sparks: SparkPool;
   readonly intensity: IntensityState;
@@ -82,6 +85,7 @@ export function createWorld(seed: number): World {
     claimSigA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigC: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    danger: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     hazard: { x: 0, y: 0, r: 0, life: 0 },
     sparks: { x: new Float32Array(MAX_SPARKS), y: new Float32Array(MAX_SPARKS), count: 0 },
     intensity: createIntensityState(),

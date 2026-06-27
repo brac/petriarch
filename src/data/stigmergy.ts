@@ -19,4 +19,13 @@ export const STIGMERGY = {
   claimDecay: 0.985, // per-tick multiplier (<1 → fades; persists ~46-tick half-life)
   claimRenderAlpha: 0.45, // overlay alpha at full magnitude
   claimRenderMagFull: 2.0, // magnitude that maps to full overlay alpha
+
+  // danger — deposited on death (death.ts), medium decay (fear fades faster than
+  // territory), some diffusion (a death zone spreads). Read by steer as a descend
+  // gradient (flee), weighted by the THREAT_AVOID gene.
+  dangerDeposit: 3.0, // magnitude stamped at a dying agent's cell
+  dangerDiffuse: 0.16, // 4-neighbor blend fraction [0,1]
+  dangerDecay: 0.95, // per-tick multiplier (~14-tick half-life)
+  dangerRenderAlpha: 0.5, // overlay alpha at full magnitude
+  dangerRenderMagFull: 6.0, // magnitude that maps to full overlay alpha
 };

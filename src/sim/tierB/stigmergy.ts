@@ -39,13 +39,16 @@ export function stigmergy(world: World): void {
     sc[c] = sc[c]! + d * genes[bi + GENE.SIG_C]!;
   }
 
-  // --- diffuse + decay (identical rates on all four → mean signature preserved) ---
+  // --- claim diffuse + decay (identical rates on all four → mean signature preserved) ---
   const k = STIGMERGY.claimDiffuse;
   const decay = STIGMERGY.claimDecay;
   diffuseDecay(mag, k, decay);
   diffuseDecay(sa, k, decay);
   diffuseDecay(sb, k, decay);
   diffuseDecay(sc, k, decay);
+
+  // --- danger diffuse + decay (deposit is event-driven, in death.ts) ---
+  diffuseDecay(world.danger, STIGMERGY.dangerDiffuse, STIGMERGY.dangerDecay);
 }
 
 // next = ((1-k)*cur + k*avg4(neighbors)) * decay, edges clamped. Writes via scratch

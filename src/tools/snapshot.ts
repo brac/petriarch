@@ -17,7 +17,7 @@ import { GENE_COUNT } from "../data/genome";
 import { MAX_AGENTS, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../data/capacity";
 
 const MAGIC = 0x50455452; // "PETR"
-const VERSION = 2; // v2: + claim stigmergy fields (mag, sigA, sigB, sigC)
+const VERSION = 3; // v2: + claim fields (mag, sigA/B/C); v3: + danger field
 const GRID_LEN = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 // Meta scalar slots (one Float64 each; holds uint32s and the sim clock exactly).
@@ -45,8 +45,8 @@ export function serializeWorld(world: World): ArrayBuffer {
   // Layout (all 4-byte-aligned; the lone Uint8 array goes last):
   //   meta(f64×META_LEN) | F32_COUNT×f32[n] | lineageId i32[n] | genes f32[n*gc]
   //   | resources f32[GRID] | resourceCap f32[GRID]
-  //   | claimMag f32[GRID] | claimSigA/B/C f32[GRID] | alive u8[n]
-  const GRID_FIELDS = 6; // resources, resourceCap, claimMag, claimSigA, claimSigB, claimSigC
+  //   | claimMag f32[GRID] | claimSigA/B/C f32[GRID] | danger f32[GRID] | alive u8[n]
+  const GRID_FIELDS = 7; // resources, resourceCap, claimMag, claimSigA/B/C, danger
   const bytes =
     META_LEN * 8 + F32_COUNT * n * 4 + n * 4 + n * gc * 4 + GRID_LEN * 4 * GRID_FIELDS + n * 1;
   const buf = new ArrayBuffer(bytes);
@@ -90,6 +90,7 @@ export function serializeWorld(world: World): ArrayBuffer {
   put(world.claimSigA);
   put(world.claimSigB);
   put(world.claimSigC);
+  put(world.danger);
   put(a.alive.subarray(0, n));
 
   return buf;
@@ -127,6 +128,7 @@ export function restoreWorld(world: World, buf: ArrayBuffer): void {
   world.claimSigA.set(readF32(GRID_LEN));
   world.claimSigB.set(readF32(GRID_LEN));
   world.claimSigC.set(readF32(GRID_LEN));
+  world.danger.set(readF32(GRID_LEN));
   a.alive.set(new Uint8Array(buf, off, n));
   off += n;
 

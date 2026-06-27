@@ -37,6 +37,7 @@ const RES_TINT = 0x2ec86a; // food green
 const CLAIM_SAT = 0.7; // territory hue saturation (claim encodes lineage, not morphology)
 const CLAIM_LUM = 0.5; // territory hue lightness
 const CLAIM_EPS = 1e-3; // below this magnitude a cell is unclaimed (alpha 0)
+const DANGER_TINT = 0xff3b30; // death-zone red
 const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
 const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
 // Kin-edge cost guards.
@@ -56,6 +57,7 @@ export class NetRenderer {
 
   private resParticles: Particle[] = [];
   private claimParticles: Particle[] = [];
+  private dangerParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
   private sparkParticles: Particle[] = [];
@@ -90,6 +92,8 @@ export class NetRenderer {
     this.claimParticles = claimLayer.particles;
     const resLayer = this.buildCellLayer(cellTex, RES_TINT);
     this.resParticles = resLayer.particles;
+    const dangerLayer = this.buildCellLayer(cellTex, DANGER_TINT);
+    this.dangerParticles = dangerLayer.particles;
 
     // --- node texture + pool ---
     const nodeTex = this.app.renderer.generateTexture(
@@ -114,6 +118,7 @@ export class NetRenderer {
       field,
       claimLayer.container,
       resLayer.container,
+      dangerLayer.container,
       this.edgeLayer,
       this.nodeContainer,
       this.sparkContainer,
@@ -130,6 +135,7 @@ export class NetRenderer {
   render(world: World, _alpha: number): void {
     this.drawClaim(world);
     this.drawResources(world);
+    this.drawDanger(world);
     this.drawNodes(world);
     this.drawEdges(world);
     this.drawSparks(world);
@@ -181,6 +187,19 @@ export class NetRenderer {
       if (v < 0) v = 0;
       else if (v > 1) v = 1;
       parts[c]!.alpha = v * RES_MAX_ALPHA;
+    }
+  }
+
+  // Death-zone heatmap: red glow where danger has accumulated (deposited on death).
+  private drawDanger(world: World): void {
+    const dg = world.danger;
+    const parts = this.dangerParticles;
+    const inv = 1 / STIGMERGY.dangerRenderMagFull;
+    for (let c = 0; c < parts.length; c++) {
+      let v = dg[c]! * inv;
+      if (v < 0) v = 0;
+      else if (v > 1) v = 1;
+      parts[c]!.alpha = v * STIGMERGY.dangerRenderAlpha;
     }
   }
 

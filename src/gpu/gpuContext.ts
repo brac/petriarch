@@ -22,6 +22,7 @@ import { RESOURCE_GRID_W, RESOURCE_GRID_H, RES_CELL_W, RES_CELL_H, WORLD_W, WORL
 import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { MORPH } from "../data/morphology";
+import { COGNITION } from "../data/cognition";
 import { TICK_DT } from "../core/time";
 
 /** Hazard zone params for the metabolism pass (from World.hazard). */
@@ -406,8 +407,10 @@ export class GpuContext {
     this.steerParamsU32[3] = seed >>> 0;
     this.steerParamsF32[4] = RES_CELL_W;
     this.steerParamsF32[5] = RES_CELL_H;
-    this.steerParamsF32[6] = 0;
-    this.steerParamsF32[7] = 0;
+    // Cognition knobs (Ant rung), read live from the data module — same as
+    // writeIntParams reads SIM/MORPH. CPU steer.ts reads the same COGNITION.
+    this.steerParamsF32[6] = COGNITION.level;
+    this.steerParamsU32[7] = COGNITION.mask >>> 0;
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 

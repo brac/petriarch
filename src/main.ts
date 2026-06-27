@@ -25,6 +25,7 @@ function main(): void {
   const appEl = document.getElementById("app");
   const perfEl = document.getElementById("perf");
   const intensityEl = document.getElementById("intensity");
+  const cognitionEl = document.getElementById("cognition");
   const simSpeedEl = document.getElementById("simspd");
   const popEl = document.getElementById("pop");
   if (
@@ -32,6 +33,7 @@ function main(): void {
     !perfEl ||
     !popEl ||
     !(intensityEl instanceof HTMLInputElement) ||
+    !(cognitionEl instanceof HTMLInputElement) ||
     !(simSpeedEl instanceof HTMLInputElement)
   ) {
     throw new Error("Petriarch: missing required DOM elements");
@@ -48,12 +50,13 @@ function main(): void {
   const perf = new PerfOverlay(perfEl);
   const hud = new Hud(world, {
     intensity: intensityEl,
+    cognition: cognitionEl,
     simSpeed: simSpeedEl,
     pop: popEl,
   });
 
   const devEl = document.getElementById("devpanel");
-  if (devEl) new DevPanel(devEl, world);
+  if (devEl) new DevPanel(devEl, world, hud);
 
   // One fixed tick: the canonical sim order (docs/simulation-systems.md §Tier map),
   // with thinking (sense+steer) decoupled from acting via the think timer.

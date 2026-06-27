@@ -8,11 +8,13 @@
 // snapshot/restore, since they need a world rebuild.
 
 import type { World } from "../state/world";
+import type { Hud } from "./hud";
 import { serializeWorld, restoreWorld } from "../tools/snapshot";
 import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
+import { COG, COGNITION, COG_PRESETS } from "../data/cognition";
 import { GpuContext } from "../gpu/gpuContext";
 import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism, verifyChain } from "../gpu/verify";
 import { HASH_CELL_SIZE, WORLD_W, WORLD_H, MAX_AGENTS } from "../data/capacity";
@@ -50,7 +52,7 @@ function fmt(v: number): string {
 }
 
 export class DevPanel {
-  constructor(host: HTMLElement, world: World) {
+  constructor(host: HTMLElement, world: World, hud?: Hud) {
     const defaults = TUNABLES.map((t) => t.get());
 
     const header = document.createElement("div");
@@ -115,6 +117,60 @@ export class DevPanel {
       }
     });
     body.appendChild(reset);
+
+    // --- cognition (Ant rung): the per-term toggle bank + presets. The `level`
+    // ceiling lives on the first-class HUD slider; here we gate which terms are in
+    // the steering sum and offer Worm/Ant/Full presets. ---
+    const cogGroup = document.createElement("div");
+    cogGroup.className = "dp-group";
+    cogGroup.textContent = "Cognition";
+    body.appendChild(cogGroup);
+
+    const cogBits: { label: string; bit: number; box: HTMLInputElement }[] = [];
+    const cogTerms: { label: string; bit: number }[] = [
+      { label: "food", bit: COG.FOOD },
+      { label: "kin", bit: COG.KIN },
+      { label: "sep", bit: COG.SEP },
+      { label: "avoid", bit: COG.AVOID },
+      { label: "wander", bit: COG.WANDER },
+    ];
+    for (const term of cogTerms) {
+      const row = document.createElement("label");
+      row.className = "dp-row";
+      const name = document.createElement("span");
+      name.className = "dp-name";
+      name.textContent = term.label;
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = (COGNITION.mask & term.bit) !== 0;
+      box.addEventListener("input", () => {
+        if (box.checked) COGNITION.mask |= term.bit;
+        else COGNITION.mask &= ~term.bit;
+      });
+      row.appendChild(name);
+      row.appendChild(box);
+      body.appendChild(row);
+      cogBits.push({ label: term.label, bit: term.bit, box });
+    }
+
+    // Reflect a preset's mask into the checkboxes + its level into the HUD slider.
+    const applyCogPreset = (p: { level: number; mask: number }): void => {
+      COGNITION.mask = p.mask;
+      for (const b of cogBits) b.box.checked = (p.mask & b.bit) !== 0;
+      if (hud) hud.setCognitionLevel(p.level);
+      else COGNITION.level = p.level;
+    };
+
+    const presetRow = document.createElement("div");
+    presetRow.className = "dp-row";
+    for (const [name, preset] of Object.entries(COG_PRESETS)) {
+      const btn = document.createElement("button");
+      btn.className = "dp-reset";
+      btn.textContent = name;
+      btn.addEventListener("click", () => applyCogPreset(preset));
+      presetRow.appendChild(btn);
+    }
+    body.appendChild(presetRow);
 
     // --- snapshot / restore ---
     const snapGroup = document.createElement("div");

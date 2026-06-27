@@ -10,9 +10,11 @@
 import type { World } from "../state/world";
 import type { Loop } from "../core/loop";
 import { applyIntensity } from "../core/intensity";
+import { COGNITION } from "../data/cognition";
 
 export interface HudElements {
   intensity: HTMLInputElement;
+  cognition: HTMLInputElement;
   simSpeed: HTMLInputElement;
   pop: HTMLElement;
 }
@@ -30,6 +32,18 @@ export class Hud {
     els.intensity.addEventListener("input", () => {
       applyIntensity(world.intensity, parseFloat(els.intensity.value));
     });
+
+    // Cognition level (Ant rung): global ceiling on the deliberate steering terms.
+    COGNITION.level = parseFloat(els.cognition.value);
+    els.cognition.addEventListener("input", () => {
+      COGNITION.level = parseFloat(els.cognition.value);
+    });
+  }
+
+  /** Reflect a programmatic cognition-level change (dev-panel presets) into the slider. */
+  setCognitionLevel(level: number): void {
+    COGNITION.level = level;
+    this.els.cognition.value = String(level);
   }
 
   /** Wire the sim-speed slider to the loop (called once the loop is constructed). */

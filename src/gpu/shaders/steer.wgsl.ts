@@ -23,6 +23,13 @@ const G_WA = 10u;  // WANDER
 const SENSE_STRIDE = 7u;
 const TAU = 6.2831853071795864;
 
+// Cognition term bits (must match src/data/cognition.ts COG.*)
+const COG_FOOD   = 1u;
+const COG_KIN    = 2u;
+const COG_SEP    = 4u;
+const COG_AVOID  = 8u;
+const COG_WANDER = 16u;
+
 struct Params {
   count    : u32,
   resGridW : u32,
@@ -30,8 +37,8 @@ struct Params {
   seed     : u32,   // per-frame wander seed (GPU determinism domain)
   resCellW : f32,
   resCellH : f32,
-  _p0      : f32,
-  _p1      : f32,
+  cogLevel : f32,   // [0,1] global ceiling on deliberate terms (Ant rung)
+  cogMask  : u32,   // enabled-term bitmask
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -89,18 +96,22 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   // --- resource gradient: toward the richer of the 4-neighbor cells ---
-  let gw = i32(P.resGridW);
-  let gh = i32(P.resGridH);
-  var cx = clamp(i32(floor(xi / P.resCellW)), 0, gw - 1);
-  var cy = clamp(i32(floor(yi / P.resCellH)), 0, gh - 1);
-  let xl = select(cx, cx - 1, cx > 0);
-  let xr = select(cx, cx + 1, cx < gw - 1);
-  let yu = select(cy, cy - 1, cy > 0);
-  let yd = select(cy, cy + 1, cy < gh - 1);
-  let rowc = cy * gw;
-  var rgx = res[u32(rowc + xr)] - res[u32(rowc + xl)];
-  var rgy = res[u32(yd * gw + cx)] - res[u32(yu * gw + cx)];
-  {
+  // (uniform branch — same for all 20k agents, no divergence; FOOD off skips the reads)
+  let onFood = (P.cogMask & COG_FOOD) != 0u;
+  var rgx = 0.0;
+  var rgy = 0.0;
+  if (onFood) {
+    let gw = i32(P.resGridW);
+    let gh = i32(P.resGridH);
+    var cx = clamp(i32(floor(xi / P.resCellW)), 0, gw - 1);
+    var cy = clamp(i32(floor(yi / P.resCellH)), 0, gh - 1);
+    let xl = select(cx, cx - 1, cx > 0);
+    let xr = select(cx, cx + 1, cx < gw - 1);
+    let yu = select(cy, cy - 1, cy > 0);
+    let yd = select(cy, cy + 1, cy < gh - 1);
+    let rowc = cy * gw;
+    rgx = res[u32(rowc + xr)] - res[u32(rowc + xl)];
+    rgy = res[u32(yd * gw + cx)] - res[u32(yu * gw + cx)];
     let l = sqrt(rgx * rgx + rgy * rgy);
     if (l > 1e-4) { rgx = rgx / l; rgy = rgy / l; } else { rgx = 0.0; rgy = 0.0; }
   }
@@ -111,13 +122,14 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let wx = cos(ang);
   let wy = sin(ang);
 
-  // --- weighted blend ---
+  // --- weighted blend (Genes × level; mask gates each term, wander unscaled) ---
+  let lvl = P.cogLevel;
   let bi = i * GENE_COUNT;
-  let kc = genes[bi + G_KC];
-  let se = genes[bi + G_SE];
-  let ra = genes[bi + G_RA];
-  let ta = genes[bi + G_TA];
-  let wa = genes[bi + G_WA];
+  let kc = select(0.0, genes[bi + G_KC] * lvl, (P.cogMask & COG_KIN) != 0u);
+  let se = select(0.0, genes[bi + G_SE] * lvl, (P.cogMask & COG_SEP) != 0u);
+  let ra = select(0.0, genes[bi + G_RA] * lvl, onFood);
+  let ta = select(0.0, genes[bi + G_TA] * lvl, (P.cogMask & COG_AVOID) != 0u);
+  let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
   var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + wa * wx;
   var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + wa * wy;

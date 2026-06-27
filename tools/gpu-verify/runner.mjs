@@ -50,6 +50,14 @@ const result = await page.evaluate(async () => {
     out.hash = await verifyHash(world, ctx);
     out.sense = await verifySense(world, ctx);
     out.steer = await verifySteer(world, ctx);
+
+    // Ant rung: gating parity — CPU and GPU steer both read COGNITION, so a masked
+    // config must still match. Run food-only (wander is gene-zeroed in verify anyway).
+    const { COGNITION, COG } = await import("/src/data/cognition.ts");
+    const savedMask = COGNITION.mask, savedLvl = COGNITION.level;
+    COGNITION.mask = COG.FOOD | COG.WANDER; COGNITION.level = 0.5;
+    out.steerMasked = await verifySteer(world, ctx);
+    COGNITION.mask = savedMask; COGNITION.level = savedLvl;
     out.integrate = await verifyIntegrate(world, ctx);
     out.metabolism = await verifyMetabolism(world, ctx);
     out.chain = await verifyChain(world, ctx);

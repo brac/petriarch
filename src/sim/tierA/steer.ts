@@ -12,6 +12,7 @@ import {
   RESOURCE_GRID_W,
   RESOURCE_GRID_H,
 } from "../../data/capacity";
+import { COG, COGNITION } from "../../data/cognition";
 
 const TAU = Math.PI * 2;
 
@@ -22,6 +23,16 @@ export function steer(world: World): void {
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
   const gh = RESOURCE_GRID_H;
+
+  // Cognition knobs (Ant rung): `level` scales the deliberate terms against the
+  // always-on wander; `mask` gates each term. Read once per pass (no per-agent alloc).
+  const level = COGNITION.level;
+  const mask = COGNITION.mask;
+  const onFood = (mask & COG.FOOD) !== 0;
+  const onKin = (mask & COG.KIN) !== 0;
+  const onSep = (mask & COG.SEP) !== 0;
+  const onAvoid = (mask & COG.AVOID) !== 0;
+  const onWander = (mask & COG.WANDER) !== 0;
 
   for (let i = 0; i < count; i++) {
     const bi = i * GENE_COUNT;
@@ -74,20 +85,23 @@ export function steer(world: World): void {
     }
 
     // --- resource gradient: toward the richer of the 4-neighbor cells ---
-    let cx = (xi / RES_CELL_W) | 0;
-    if (cx < 0) cx = 0;
-    else if (cx >= gw) cx = gw - 1;
-    let cy = (yi / RES_CELL_H) | 0;
-    if (cy < 0) cy = 0;
-    else if (cy >= gh) cy = gh - 1;
-    const xl = cx > 0 ? cx - 1 : cx;
-    const xr = cx < gw - 1 ? cx + 1 : cx;
-    const yu = cy > 0 ? cy - 1 : cy;
-    const yd = cy < gh - 1 ? cy + 1 : cy;
-    const rowc = cy * gw;
-    let rgx = res[rowc + xr]! - res[rowc + xl]!;
-    let rgy = res[yd * gw + cx]! - res[yu * gw + cx]!;
-    {
+    // (FOOD off => skip the 4 resource-cell samples entirely)
+    let rgx = 0;
+    let rgy = 0;
+    if (onFood) {
+      let cx = (xi / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= gw) cx = gw - 1;
+      let cy = (yi / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= gh) cy = gh - 1;
+      const xl = cx > 0 ? cx - 1 : cx;
+      const xr = cx < gw - 1 ? cx + 1 : cx;
+      const yu = cy > 0 ? cy - 1 : cy;
+      const yd = cy < gh - 1 ? cy + 1 : cy;
+      const rowc = cy * gw;
+      rgx = res[rowc + xr]! - res[rowc + xl]!;
+      rgy = res[yd * gw + cx]! - res[yu * gw + cx]!;
       const l = Math.sqrt(rgx * rgx + rgy * rgy);
       if (l > 1e-4) {
         rgx /= l;
@@ -98,17 +112,18 @@ export function steer(world: World): void {
       }
     }
 
-    // --- wander: a seeded unit vector ---
+    // --- wander: a seeded unit vector. Always advance the shared RNG stream so it
+    // stays deterministic regardless of the WANDER toggle; gate the contribution. ---
     const ang = rng.next() * TAU;
     const wx = Math.cos(ang);
     const wy = Math.sin(ang);
 
-    // --- weighted blend ---
-    const kc = genes[bi + GENE.KIN_COHESION]!;
-    const se = genes[bi + GENE.SEPARATION]!;
-    const ra = genes[bi + GENE.RESOURCE_ATTRACT]!;
-    const ta = genes[bi + GENE.THREAT_AVOID]!;
-    const wa = genes[bi + GENE.WANDER]!;
+    // --- weighted blend (Genes × level; mask gates each term, wander unscaled) ---
+    const kc = onKin ? genes[bi + GENE.KIN_COHESION]! * level : 0;
+    const se = onSep ? genes[bi + GENE.SEPARATION]! * level : 0;
+    const ra = onFood ? genes[bi + GENE.RESOURCE_ATTRACT]! * level : 0;
+    const ta = onAvoid ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
+    const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
     let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + wa * wx;
     let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + wa * wy;

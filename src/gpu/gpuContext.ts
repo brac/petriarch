@@ -23,6 +23,7 @@ import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { MORPH } from "../data/morphology";
 import { COGNITION } from "../data/cognition";
+import { STIGMERGY } from "../data/stigmergy";
 import { TICK_DT } from "../core/time";
 
 /** Hazard zone params for the metabolism pass (from World.hazard). */
@@ -112,7 +113,7 @@ export class GpuContext {
   private readonly steerOutRead: GPUBuffer;
   private readonly steerBindGroup: GPUBindGroup;
   private readonly pipeSteer: GPUComputePipeline;
-  private readonly steerParamsHost = new ArrayBuffer(32);
+  private readonly steerParamsHost = new ArrayBuffer(48);
   private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
   private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
 
@@ -254,7 +255,7 @@ export class GpuContext {
     // --- steer pass: consumes senseOut + genes (resident) + resource + danger fields ---
     this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
-    this.steerParamsBuf = buf(32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.steerParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     this.steerOutRead = buf(capacity * STEER_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
@@ -415,6 +416,8 @@ export class GpuContext {
     // writeIntParams reads SIM/MORPH. CPU steer.ts reads the same COGNITION.
     this.steerParamsF32[6] = COGNITION.level;
     this.steerParamsU32[7] = COGNITION.mask >>> 0;
+    this.steerParamsF32[8] = STIGMERGY.dangerGain;
+    this.steerParamsF32[9] = STIGMERGY.dangerMaxPull;
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 

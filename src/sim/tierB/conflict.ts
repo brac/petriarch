@@ -10,6 +10,7 @@ import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
 import { MORPH } from "../../data/morphology";
+import { STIGMERGY } from "../../data/stigmergy";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
 import { resCellIndex } from "../grid";
 
@@ -24,6 +25,7 @@ export function conflict(world: World, useCache: boolean): void {
   const a = world.agents;
   const { posX, posY, energy, genes, fightCd, count, neighborList, neighborCount } = a;
   const res = world.resources;
+  const danger = world.danger;
   const hash = world.hash;
   const rng = world.rng;
   const sparks = world.sparks;
@@ -108,6 +110,11 @@ export function conflict(world: World, useCache: boolean): void {
       const dmg = CONFLICT.loserDamage * winSize * (1 - MORPH.resDamageReduction * loserRes);
       const le = energy[loser]!;
       energy[loser] = le - dmg;
+      // Stamp danger at the violence, scaled by damage dealt (a kill is the biggest
+      // blow → the biggest stamp). Combat-only: natural deaths (starvation, senescence)
+      // leave no fear, so the field marks active frontiers, not the whole map.
+      const dc = resCellIndex(posX[loser]!, posY[loser]!);
+      danger[dc] = danger[dc]! + STIGMERGY.dangerPerDamage * dmg;
       const stolen = (le > 0 ? (dmg < le ? dmg : le) : 0) * CONFLICT.stealFrac;
       if (stolen > 0) {
         const wMaxE = winSize * SIM.maxEnergyPerSize;

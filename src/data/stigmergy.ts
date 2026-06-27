@@ -20,12 +20,18 @@ export const STIGMERGY = {
   claimRenderAlpha: 0.45, // overlay alpha at full magnitude
   claimRenderMagFull: 2.0, // magnitude that maps to full overlay alpha
 
-  // danger — deposited on death (death.ts), medium decay (fear fades faster than
-  // territory), some diffusion (a death zone spreads). Read by steer as a descend
-  // gradient (flee), weighted by the THREAT_AVOID gene.
-  dangerDeposit: 3.0, // magnitude stamped at a dying agent's cell
-  dangerDiffuse: 0.16, // 4-neighbor blend fraction [0,1]
-  dangerDecay: 0.95, // per-tick multiplier (~14-tick half-life)
+  // danger — deposited on COMBAT damage (conflict.ts), scaled by the blow; natural
+  // deaths leave none. Persists + spreads so a coherent gradient reaches well beyond
+  // the frontier. Read by steer as a DESCEND gradient (flee).
+  dangerPerDamage: 1.2, // danger stamped per unit of combat damage dealt
+  dangerDiffuse: 0.12, // 4-neighbor blend fraction [0,1] (keep frontier zones tight + steep)
+  dangerDecay: 0.99, // per-tick multiplier (~69-tick half-life; zones linger)
+  // Steer reads danger MAGNITUDE-SENSITIVELY (not unit-normalized like other terms):
+  // pull = min(|gradient| * gain, maxPull), so agents at a frontier flee hard and
+  // those far from any fighting ignore the faint tails. maxPull > 1 lets danger
+  // dominate the blend where the killing happens.
+  dangerGain: 1.0, // gradient magnitude → pull slope
+  dangerMaxPull: 2.5, // pull ceiling (vs other terms' unit magnitude)
   dangerRenderAlpha: 0.5, // overlay alpha at full magnitude
-  dangerRenderMagFull: 6.0, // magnitude that maps to full overlay alpha
+  dangerRenderMagFull: 14.0, // magnitude that maps to full overlay alpha
 };

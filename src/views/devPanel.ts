@@ -54,9 +54,11 @@ const TUNABLES: Tunable[] = [
   { group: "Territory", label: "renderMagFull", min: 0.5, max: 12, step: 0.5, get: () => STIGMERGY.claimRenderMagFull, set: (v) => { STIGMERGY.claimRenderMagFull = v; } },
 
   // Danger (death-zone) field. Deposited on death; steer descends it (flee), gated by THREAT_AVOID.
-  { group: "Danger", label: "deposit", min: 0, max: 12, step: 0.25, get: () => STIGMERGY.dangerDeposit, set: (v) => { STIGMERGY.dangerDeposit = v; } },
+  { group: "Danger", label: "perDamage", min: 0, max: 3, step: 0.05, get: () => STIGMERGY.dangerPerDamage, set: (v) => { STIGMERGY.dangerPerDamage = v; } },
   { group: "Danger", label: "diffuse", min: 0, max: 0.4, step: 0.01, get: () => STIGMERGY.dangerDiffuse, set: (v) => { STIGMERGY.dangerDiffuse = v; } },
   { group: "Danger", label: "decay", min: 0.85, max: 1, step: 0.001, get: () => STIGMERGY.dangerDecay, set: (v) => { STIGMERGY.dangerDecay = v; } },
+  { group: "Danger", label: "fleeGain", min: 0, max: 3, step: 0.05, get: () => STIGMERGY.dangerGain, set: (v) => { STIGMERGY.dangerGain = v; } },
+  { group: "Danger", label: "fleeMaxPull", min: 0, max: 6, step: 0.1, get: () => STIGMERGY.dangerMaxPull, set: (v) => { STIGMERGY.dangerMaxPull = v; } },
   { group: "Danger", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => STIGMERGY.dangerRenderAlpha, set: (v) => { STIGMERGY.dangerRenderAlpha = v; } },
   { group: "Danger", label: "renderMagFull", min: 0.5, max: 20, step: 0.5, get: () => STIGMERGY.dangerRenderMagFull, set: (v) => { STIGMERGY.dangerRenderMagFull = v; } },
 ];

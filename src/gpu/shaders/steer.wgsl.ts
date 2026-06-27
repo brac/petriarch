@@ -40,6 +40,8 @@ struct Params {
   resCellH : f32,
   cogLevel : f32,   // [0,1] global ceiling on deliberate terms (Ant rung)
   cogMask  : u32,   // enabled-term bitmask
+  dangerGain    : f32, // danger |gradient| → pull slope (magnitude-sensitive)
+  dangerMaxPull : f32, // danger pull ceiling
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -135,8 +137,13 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     // negate the ascent gradient → point away from rising danger
     dgx = danger[u32(rowc + xl)] - danger[u32(rowc + xr)];
     dgy = danger[u32(yu * gw + cx)] - danger[u32(yd * gw + cx)];
+    // magnitude-sensitive: pull = min(|grad|*gain, maxPull), direction preserved
     let l = sqrt(dgx * dgx + dgy * dgy);
-    if (l > 1e-4) { dgx = dgx / l; dgy = dgy / l; } else { dgx = 0.0; dgy = 0.0; }
+    if (l > 1e-4) {
+      let pull = min(l * P.dangerGain, P.dangerMaxPull);
+      let s = pull / l;
+      dgx = dgx * s; dgy = dgy * s;
+    } else { dgx = 0.0; dgy = 0.0; }
   }
 
   // --- wander: a per-agent seeded unit vector (GPU determinism domain) ---

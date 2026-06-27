@@ -13,6 +13,7 @@ import {
   RESOURCE_GRID_H,
 } from "../../data/capacity";
 import { COG, COGNITION } from "../../data/cognition";
+import { STIGMERGY } from "../../data/stigmergy";
 
 const TAU = Math.PI * 2;
 
@@ -133,10 +134,15 @@ export function steer(world: World): void {
       // negate the ascent gradient → point away from rising danger
       dgx = danger[rowc + xl]! - danger[rowc + xr]!;
       dgy = danger[yu * gw + cx]! - danger[yd * gw + cx]!;
+      // Magnitude-sensitive: pull = min(|grad|*gain, maxPull), direction preserved.
+      // Strong/fresh danger flees hard; faint/old danger is ignored (no noise amp).
       const l = Math.sqrt(dgx * dgx + dgy * dgy);
       if (l > 1e-4) {
-        dgx /= l;
-        dgy /= l;
+        let pull = l * STIGMERGY.dangerGain;
+        if (pull > STIGMERGY.dangerMaxPull) pull = STIGMERGY.dangerMaxPull;
+        const s = pull / l;
+        dgx *= s;
+        dgy *= s;
       } else {
         dgx = 0;
         dgy = 0;

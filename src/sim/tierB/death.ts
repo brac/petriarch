@@ -5,23 +5,18 @@
 
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
-import { STIGMERGY } from "../../data/stigmergy";
-import { resCellIndex } from "../grid";
 
 export function death(world: World): void {
   const a = world.agents;
-  const { posX, posY, energy, age, genes } = a;
-  const danger = world.danger;
-  const dep = STIGMERGY.dangerDeposit;
+  const { energy, age, genes } = a;
 
   let i = a.count;
   while (i > 0) {
     i--;
     const lifespan = genes[i * GENE_COUNT + GENE.LIFESPAN]!;
+    // Danger is NOT deposited here — natural deaths (starvation, senescence) leave no
+    // fear. Only combat KILLS stamp danger, in conflict.ts where the lethal blow lands.
     if (energy[i]! <= 0 || age[i]! >= lifespan) {
-      // Deposit danger at the dying agent's cell (read position before swap-remove).
-      const c = resCellIndex(posX[i]!, posY[i]!);
-      danger[c] = danger[c]! + dep;
       a.kill(i);
     }
   }

@@ -14,6 +14,7 @@ import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
+import { STIGMERGY } from "../data/stigmergy";
 import { COG, COGNITION, COG_PRESETS } from "../data/cognition";
 import { GpuContext } from "../gpu/gpuContext";
 import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism, verifyChain } from "../gpu/verify";
@@ -44,6 +45,13 @@ const TUNABLES: Tunable[] = [
   { group: "Conflict", label: "loserDamage", min: 0, max: 30, step: 0.5, get: () => CONFLICT.loserDamage, set: (v) => { CONFLICT.loserDamage = v; } },
   { group: "Conflict", label: "stealFrac", min: 0, max: 1, step: 0.02, get: () => CONFLICT.stealFrac, set: (v) => { CONFLICT.stealFrac = v; } },
   { group: "Conflict", label: "aggressThresh", min: 0, max: 1, step: 0.02, get: () => CONFLICT.aggressionThreshold, set: (v) => { CONFLICT.aggressionThreshold = v; } },
+
+  // Territory (claim) field. Lower decay / diffuse → crisper, more localized basins.
+  { group: "Territory", label: "deposit", min: 0, max: 0.3, step: 0.005, get: () => STIGMERGY.claimDeposit, set: (v) => { STIGMERGY.claimDeposit = v; } },
+  { group: "Territory", label: "diffuse", min: 0, max: 0.4, step: 0.01, get: () => STIGMERGY.claimDiffuse, set: (v) => { STIGMERGY.claimDiffuse = v; } },
+  { group: "Territory", label: "decay", min: 0.9, max: 1, step: 0.001, get: () => STIGMERGY.claimDecay, set: (v) => { STIGMERGY.claimDecay = v; } },
+  { group: "Territory", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => STIGMERGY.claimRenderAlpha, set: (v) => { STIGMERGY.claimRenderAlpha = v; } },
+  { group: "Territory", label: "renderMagFull", min: 0.5, max: 12, step: 0.5, get: () => STIGMERGY.claimRenderMagFull, set: (v) => { STIGMERGY.claimRenderMagFull = v; } },
 ];
 
 function fmt(v: number): string {

@@ -51,6 +51,13 @@ export interface World {
   readonly resources: Float32Array;
   /** Per-cell regrow target (the capacity field, shaped at init by clumping). */
   readonly resourceCap: Float32Array;
+  // Stigmergy `claim` (territory) field — continuous signature-accumulation, same
+  // grid as resources. Mean signature = claimSig{A,B,C}/claimMag → the depositing
+  // tribe's hue. Deposited/diffused/decayed by tierB/stigmergy.ts; render-only.
+  readonly claimMag: Float32Array;
+  readonly claimSigA: Float32Array;
+  readonly claimSigB: Float32Array;
+  readonly claimSigC: Float32Array;
   readonly hazard: Hazard;
   readonly sparks: SparkPool;
   readonly intensity: IntensityState;
@@ -71,6 +78,10 @@ export function createWorld(seed: number): World {
     rng: new Rng(seed),
     resources: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     resourceCap: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    claimMag: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    claimSigA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    claimSigB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    claimSigC: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     hazard: { x: 0, y: 0, r: 0, life: 0 },
     sparks: { x: new Float32Array(MAX_SPARKS), y: new Float32Array(MAX_SPARKS), count: 0 },
     intensity: createIntensityState(),

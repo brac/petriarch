@@ -27,12 +27,16 @@ import {
 import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
+import { STIGMERGY } from "../data/stigmergy";
 
 const OFFSCREEN = -10000;
 const NODE_TEX_RADIUS = 16; // node texture radius (px); per-agent scale multiplies it
 const NODE_SCALE = 0.5; // SIZE gene → sprite scale
 const RES_MAX_ALPHA = 0.5; // a full resource cell's glow alpha
 const RES_TINT = 0x2ec86a; // food green
+const CLAIM_SAT = 0.7; // territory hue saturation (claim encodes lineage, not morphology)
+const CLAIM_LUM = 0.5; // territory hue lightness
+const CLAIM_EPS = 1e-3; // below this magnitude a cell is unclaimed (alpha 0)
 const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
 const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
 // Kin-edge cost guards.
@@ -51,6 +55,7 @@ export class NetRenderer {
   private nodeHigh = 0;
 
   private resParticles: Particle[] = [];
+  private claimParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
   private sparkParticles: Particle[] = [];
@@ -76,11 +81,15 @@ export class NetRenderer {
       .rect(0, 0, WORLD_W, WORLD_H)
       .stroke({ width: 2, color: 0x00ffcc, alpha: 0.35 });
 
-    // --- resource glow layer: one cell-sized quad per grid cell, color dynamic ---
+    // --- cell-grid layers: claim/territory (ground tint) + resource glow, both
+    // one cell-sized quad per grid cell with dynamic color ---
     const cellTex = this.app.renderer.generateTexture(
       new Graphics().rect(0, 0, RES_CELL_W, RES_CELL_H).fill(0xffffff),
     );
-    const resContainer = this.buildResourceLayer(cellTex);
+    const claimLayer = this.buildCellLayer(cellTex, 0xffffff);
+    this.claimParticles = claimLayer.particles;
+    const resLayer = this.buildCellLayer(cellTex, RES_TINT);
+    this.resParticles = resLayer.particles;
 
     // --- node texture + pool ---
     const nodeTex = this.app.renderer.generateTexture(
@@ -99,10 +108,12 @@ export class NetRenderer {
     this.sparkContainer = sparkPool.container;
     this.sparkParticles = sparkPool.particles;
 
-    // Layer order.
+    // Layer order. Claim/territory sits just above the dark field as a ground tint,
+    // under the resource glow and the agents.
     this.world.addChild(
       field,
-      resContainer,
+      claimLayer.container,
+      resLayer.container,
       this.edgeLayer,
       this.nodeContainer,
       this.sparkContainer,
@@ -117,6 +128,7 @@ export class NetRenderer {
 
   /** Read state and draw one frame. No decisions here. */
   render(world: World, _alpha: number): void {
+    this.drawClaim(world);
     this.drawResources(world);
     this.drawNodes(world);
     this.drawEdges(world);
@@ -135,6 +147,30 @@ export class NetRenderer {
   }
 
   // --- draw passes ---
+
+  // Territory turf: each cell's mean accumulated signature → that tribe's hue; alpha
+  // from claim magnitude. Borders read as a blended hue where two tribes' claims mix.
+  private drawClaim(world: World): void {
+    const mag = world.claimMag;
+    const sa = world.claimSigA;
+    const sb = world.claimSigB;
+    const sc = world.claimSigC;
+    const parts = this.claimParticles;
+    const invFull = 1 / STIGMERGY.claimRenderMagFull;
+    for (let c = 0; c < parts.length; c++) {
+      const m = mag[c]!;
+      const p = parts[c]!;
+      if (m <= CLAIM_EPS) {
+        p.alpha = 0;
+        continue;
+      }
+      const inv = 1 / m;
+      p.tint = hslToRgb(sigHue(sa[c]! * inv, sb[c]! * inv, sc[c]! * inv), CLAIM_SAT, CLAIM_LUM);
+      let a = m * invFull;
+      if (a > 1) a = 1;
+      p.alpha = a * STIGMERGY.claimRenderAlpha;
+    }
+  }
 
   private drawResources(world: World): void {
     const res = world.resources;
@@ -255,14 +291,16 @@ export class NetRenderer {
 
   // --- builders ---
 
-  private buildResourceLayer(tex: Texture): ParticleContainer {
+  // One cell-sized quad per grid cell (color dynamic: per-frame tint + alpha). Shared
+  // by the resource glow and the claim/territory overlay.
+  private buildCellLayer(tex: Texture, tint: number): { container: ParticleContainer; particles: Particle[] } {
     const particles: Particle[] = [];
     for (let cy = 0; cy < RESOURCE_GRID_H; cy++) {
       for (let cx = 0; cx < RESOURCE_GRID_W; cx++) {
         particles.push(
           new Particle({
             texture: tex,
-            tint: RES_TINT,
+            tint,
             anchorX: 0,
             anchorY: 0,
             x: cx * RES_CELL_W,
@@ -279,8 +317,7 @@ export class NetRenderer {
     });
     container.blendMode = "add";
     container.update();
-    this.resParticles = particles;
-    return container;
+    return { container, particles };
   }
 
   private buildPool(
@@ -325,10 +362,16 @@ function clamp01(v: number): number {
 // desaturates (armor looks metallic/muted), EFFICIENCY lightens (efficient bodies look
 // glossier/brighter). So a tank reads as a muted node, an efficient forager as a bright
 // one — body type at a glance, on top of lineage hue, size (SIZE) and energy (alpha).
+// Signature (sigA/B/C) → hue in [0,1). The one mapping shared by agent nodes and the
+// claim/territory turf, so a tribe's turf glows in its own node colour.
+function sigHue(sigA: number, sigB: number, sigC: number): number {
+  const h = sigA + 0.15 * (sigB - sigC);
+  return ((h % 1) + 1) % 1;
+}
+
 function nodeTint(genes: Float32Array, i: number): number {
   const bi = i * GENE_COUNT;
-  let h = genes[bi + GENE.SIG_A]! + 0.15 * (genes[bi + GENE.SIG_B]! - genes[bi + GENE.SIG_C]!);
-  h = ((h % 1) + 1) % 1;
+  const h = sigHue(genes[bi + GENE.SIG_A]!, genes[bi + GENE.SIG_B]!, genes[bi + GENE.SIG_C]!);
   const s = 0.85 - 0.55 * genes[bi + GENE.RESILIENCE]!; // armor → metallic/desaturated
   const l = 0.55 + 0.2 * genes[bi + GENE.EFFICIENCY]!; // efficient → glossier/brighter
   return hslToRgb(h, s, l);

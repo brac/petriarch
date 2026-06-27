@@ -15,6 +15,7 @@ import { steer } from "./tierA/steer";
 import { integrate } from "./tierA/integrate";
 import { metabolism } from "./tierA/metabolism";
 import { resources } from "./tierB/resources";
+import { stigmergy } from "./tierB/stigmergy";
 import { conflict } from "./tierB/conflict";
 import { reproduce } from "./tierB/reproduce";
 import { death } from "./tierB/death";
@@ -24,6 +25,7 @@ export function simStep(world: World): void {
   world.time += TICK_DT;
 
   resources(world); // 1
+  stigmergy(world); // 1b — claim/territory field (deposit → diffuse → decay)
 
   let didThink = false;
   if (++world.thinkTimer >= world.intensity.thinkInterval) {

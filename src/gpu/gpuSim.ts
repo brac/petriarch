@@ -21,6 +21,7 @@ import type { GpuContext } from "./gpuContext";
 import { TICK_DT } from "../core/time";
 import { SIM } from "../data/sim";
 import { resources } from "../sim/tierB/resources";
+import { stigmergy } from "../sim/tierB/stigmergy";
 import { conflict } from "../sim/tierB/conflict";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
@@ -43,6 +44,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
 
   const t0 = performance.now();
   resources(world); // 1 — Tier B: regrow the field, age out the hazard
+  stigmergy(world); // 1b — claim/territory field (CPU; claim never goes to the GPU)
   const tAfterRes = performance.now();
 
   const count = a.count;
@@ -135,6 +137,7 @@ export class GpuPipeline {
     world.tick++;
     world.time += TICK_DT;
     resources(world);
+    stigmergy(world); // claim/territory field (CPU; claim never goes to the GPU)
     const count = a.count;
     if (count > 0) {
       this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);

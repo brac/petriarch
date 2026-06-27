@@ -498,6 +498,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   const snapAge = a.age.slice(0, count);
   const snapGenes = a.genes.slice(0, count * GENE_COUNT);
   const snapRes = world.resources.slice();
+  const snapDanger = world.danger.slice();
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
 
   const budget = world.intensity.neighborBudget;
@@ -543,6 +544,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   // GPU resident chain on the same snapshot.
   gpu.uploadState(snapX, snapY, snapVX, snapVY, snapEnergy, snapAge, snapGenes, count);
   gpu.uploadResources(snapRes);
+  gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();
 

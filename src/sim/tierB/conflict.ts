@@ -23,7 +23,7 @@ const ownNbr: number[] = [];
 // for the agents actually standing on contestable food, so the cost is bounded.
 export function conflict(world: World, useCache: boolean): void {
   const a = world.agents;
-  const { posX, posY, energy, genes, fightCd, count, neighborList, neighborCount } = a;
+  const { posX, posY, energy, energyB, genes, fightCd, count, neighborList, neighborCount } = a;
   const res = world.resources;
   const danger = world.danger;
   const hash = world.hash;
@@ -108,8 +108,18 @@ export function conflict(world: World, useCache: boolean): void {
       // The loser's RESILIENCE armors it against the blow (its benefit).
       const loserRes = genes[loser * GENE_COUNT + GENE.RESILIENCE]!;
       const dmg = CONFLICT.loserDamage * winSize * (1 - MORPH.resDamageReduction * loserRes);
-      const le = energy[loser]!;
-      energy[loser] = le - dmg;
+      // Dual-nutrient: the blow drains the loser's TOTAL energy, proportionally across both
+      // stores, so combat stays lethal on the sum (death.ts). The winner robs a fraction as
+      // fuel into its A store.
+      const leA = energy[loser]!;
+      const leB = energyB[loser]!;
+      const le = leA + leB;
+      if (le > 1e-6) {
+        energy[loser] = leA - dmg * (leA / le);
+        energyB[loser] = leB - dmg * (leB / le);
+      } else {
+        energy[loser] = leA - dmg;
+      }
       // Stamp danger at the violence, scaled by damage dealt (a kill is the biggest
       // blow → the biggest stamp). Combat-only: natural deaths (starvation, senescence)
       // leave no fear, so the field marks active frontiers, not the whole map.

@@ -26,7 +26,11 @@ export class Agents {
   readonly posY: Float32Array;
   readonly velX: Float32Array;
   readonly velY: Float32Array;
+  /** Nutrient-A energy store (the original `energy`). Survival = energy + energyB > 0. */
   readonly energy: Float32Array;
+  /** Nutrient-B energy store (Phase 1 dual-nutrient diet). Filled from resourceB; both
+   *  stores must be above threshold to reproduce, but only their SUM gates survival. */
+  readonly energyB: Float32Array;
   readonly age: Float32Array;
   // Cached steering vector: written by steer.ts every THINK_INTERVAL, consumed by
   // integrate.ts every tick (cognition decoupled from action — CLAUDE.md rule 6).
@@ -64,6 +68,7 @@ export class Agents {
     this.velX = new Float32Array(capacity);
     this.velY = new Float32Array(capacity);
     this.energy = new Float32Array(capacity);
+    this.energyB = new Float32Array(capacity);
     this.age = new Float32Array(capacity);
     this.steerX = new Float32Array(capacity);
     this.steerY = new Float32Array(capacity);
@@ -87,7 +92,7 @@ export class Agents {
    * index, or -1 if at capacity. The caller writes the genome slice at
    * [i*GENE_COUNT ..] (e.g. reproduce.ts copies + mutates the parent's). Zero-alloc.
    */
-  spawn(x: number, y: number, energy: number, lineageId: number): number {
+  spawn(x: number, y: number, energy: number, lineageId: number, energyB = 0): number {
     if (this.count >= this.capacity) return -1;
     const i = this.count++;
     this.posX[i] = x;
@@ -95,6 +100,7 @@ export class Agents {
     this.velX[i] = 0;
     this.velY[i] = 0;
     this.energy[i] = energy;
+    this.energyB[i] = energyB;
     this.age[i] = 0;
     this.steerX[i] = 0;
     this.steerY[i] = 0;
@@ -130,6 +136,7 @@ export class Agents {
     this.velX[i] = this.velX[last]!;
     this.velY[i] = this.velY[last]!;
     this.energy[i] = this.energy[last]!;
+    this.energyB[i] = this.energyB[last]!;
     this.age[i] = this.age[last]!;
     this.steerX[i] = this.steerX[last]!;
     this.steerY[i] = this.steerY[last]!;

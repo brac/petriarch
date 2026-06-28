@@ -8,15 +8,17 @@ import { GENE, GENE_COUNT } from "../../data/genome";
 
 export function death(world: World): void {
   const a = world.agents;
-  const { energy, age, genes } = a;
+  const { energy, energyB, age, genes } = a;
 
   let i = a.count;
   while (i > 0) {
     i--;
     const lifespan = genes[i * GENE_COUNT + GENE.LIFESPAN]!;
-    // Danger is NOT deposited here — natural deaths (starvation, senescence) leave no
-    // fear. Only combat KILLS stamp danger, in conflict.ts where the lethal blow lands.
-    if (energy[i]! <= 0 || age[i]! >= lifespan) {
+    // Starvation gates on the SUM of the two nutrient stores (dual-nutrient diet): an agent
+    // rich in one nutrient and empty of the other still LIVES (scarcity throttles breeding,
+    // not survival — reproduce.ts). Danger is NOT deposited here — natural deaths leave no
+    // fear; only combat KILLS stamp danger, in conflict.ts where the lethal blow lands.
+    if (energy[i]! + energyB[i]! <= 0 || age[i]! >= lifespan) {
       a.kill(i);
     }
   }

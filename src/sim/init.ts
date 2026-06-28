@@ -105,10 +105,17 @@ export function initResourceField(world: World): void {
   const cyCell = R.regionCenterY * gh;
   const sxCell = R.regionSpreadX * gw;
   const syCell = R.regionSpreadY * gh;
+  const axCell = R.regionACenterX * gw;
+  const bxCell = R.regionBCenterX * gw;
+  const cf = R.regionCrossFrac;
 
-  // A-region (left) → resourceCap; B-region (right) → resourceCapB.
-  seedRegion(resourceCap, rng, R.regionACenterX * gw, cyCell, sxCell, syCell, baseAmp, clumpAmp, halfA);
-  seedRegion(resourceCapB, rng, R.regionBCenterX * gw, cyCell, sxCell, syCell, baseAmp, clumpAmp, halfB);
+  // Each region grows its DOMINANT nutrient at full strength + a trace of the other (the
+  // cross-crop, so a dual-nutrient population survives locally and trade has something to
+  // relieve). A-region → mostly resourceCap (A); B-region → mostly resourceCapB (B).
+  seedRegion(resourceCap, rng, axCell, cyCell, sxCell, syCell, baseAmp, clumpAmp, halfA);
+  seedRegion(resourceCapB, rng, axCell, cyCell, sxCell, syCell, baseAmp * cf, clumpAmp * cf, halfA);
+  seedRegion(resourceCapB, rng, bxCell, cyCell, sxCell, syCell, baseAmp, clumpAmp, halfB);
+  seedRegion(resourceCap, rng, bxCell, cyCell, sxCell, syCell, baseAmp * cf, clumpAmp * cf, halfB);
 
   const sf = R.startFrac;
   for (let c = 0; c < resourceCap.length; c++) {
@@ -155,9 +162,11 @@ export function seedPopulation(world: World): void {
     genes[base + GENE.SIG_B] = clamp01(sigB[f]! + rng.range(-0.05, 0.05));
     genes[base + GENE.SIG_C] = clamp01(sigC[f]! + rng.range(-0.05, 0.05));
 
-    // Start with a fraction of this body's max energy (max scales with SIZE).
+    // Start with a fraction of this body's max energy in BOTH nutrient stores (each store
+    // caps at maxE; dual-nutrient diet — see metabolism.ts).
     const maxE = genes[base + GENE.SIZE]! * SIM.maxEnergyPerSize;
     agents.energy[i] = maxE * SIM.startEnergyFrac;
+    agents.energyB[i] = maxE * SIM.startEnergyFrac;
   }
 
   // Build the hash so the first think tick has neighbors.

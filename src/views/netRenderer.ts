@@ -273,7 +273,7 @@ export class NetRenderer {
 
   private drawNodes(world: World): void {
     const a = world.agents;
-    const { posX, posY, energy, genes, count } = a;
+    const { posX, posY, energy, energyB, genes, count } = a;
     const parts = this.nodeParticles;
     // In border mode the nodes are ghosted so the magenta seams dominate the frame.
     const aScale = this.borderMode ? BORDER_NODE_ALPHA : 1;
@@ -286,8 +286,9 @@ export class NetRenderer {
       p.scaleX = sc;
       p.scaleY = sc;
       p.tint = nodeTint(genes, i);
+      // Brightness from TOTAL nutrition (both stores, each caps at maxE → divide by 2·maxE).
       const maxE = size * SIM.maxEnergyPerSize;
-      p.alpha = (0.3 + 0.7 * clamp01(energy[i]! / maxE)) * aScale;
+      p.alpha = (0.3 + 0.7 * clamp01((energy[i]! + energyB[i]!) / (2 * maxE))) * aScale;
     }
     for (let i = count; i < this.nodeHigh; i++) {
       parts[i]!.x = OFFSCREEN;

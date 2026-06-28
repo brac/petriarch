@@ -18,8 +18,9 @@ import { resCellIndex } from "../grid";
 
 export function metabolism(world: World): void {
   const a = world.agents;
-  const { posX, posY, velX, velY, energy, age, genes, count } = a;
+  const { posX, posY, velX, velY, energy, energyB, age, genes, count } = a;
   const res = world.resources;
+  const resB = world.resourceB;
   const hz = world.hazard;
   const dt = TICK_DT;
   const hazActive = hz.life > 0;
@@ -61,34 +62,54 @@ export function metabolism(world: World): void {
       if (dx * dx + dy * dy < hzR2) drain += COSTS.hazardDrain * (1 - MORPH.resHazardReduction * resilience);
     }
 
-    let e = energy[i]! - drain;
-
-    // Intake from the resource cell underfoot (capped by availability and headroom).
-    const c = resCellIndex(posX[i]!, posY[i]!);
-    const avail = res[c]!;
-    if (avail > 0) {
-      const maxE = size * SIM.maxEnergyPerSize;
-      const room = maxE - e;
-      if (room > 0) {
-        // EFFICIENCY = more energy per unit resource (its benefit): we deplete `take`
-        // of the cell and credit `take * effGain` energy. So efficient bodies are
-        // gentler on the field for the same energy — a sustainable niche.
-        const effGain = 1 + MORPH.effIntakeBonus * efficiency;
-        // Bigger mouths harvest faster (SIZE^intakeSizeExp), so big bodies can
-        // accumulate energy fast enough to breed and to hold rich patches.
-        const baseTake =
-          COSTS.intakeSizeExp === 1
-            ? COSTS.intakeRate * size
-            : COSTS.intakeRate * Math.pow(size, COSTS.intakeSizeExp);
-        let take = baseTake;
-        if (take > avail) take = avail;
-        const roomTake = room / effGain; // resource that would exactly fill the headroom
-        if (take > roomTake) take = roomTake;
-        e += take * effGain;
-        res[c] = avail - take;
-      }
+    // Dual-nutrient diet (Phase 1): two stores, eA (nutrient A) + eB (nutrient B). The
+    // metabolic drain is split PROPORTIONALLY across the two stores — you burn whatever you
+    // have, so a store at 0 contributes nothing and survival rides on the SUM (death.ts
+    // culls on eA+eB ≤ 0). Reproduction needs BOTH stores high (reproduce.ts) — that's the
+    // demand for the scarce nutrient that trade will relieve.
+    let eA = energy[i]!;
+    let eB = energyB[i]!;
+    const total = eA + eB;
+    if (total > 1e-6) {
+      eA -= drain * (eA / total);
+      eB -= drain * (eB / total);
+    } else {
+      eA -= drain; // both already empty → let it go negative; the death pass culls the sum
     }
 
-    energy[i] = e;
+    // Intake nutrient A from `res` into eA, nutrient B from `resB` into eB. Each store caps
+    // at maxStore; EFFICIENCY (more energy per unit) + size-scaled mouth as before.
+    const maxStore = size * SIM.maxEnergyPerSize;
+    const effGain = 1 + MORPH.effIntakeBonus * efficiency;
+    const baseTake =
+      COSTS.intakeSizeExp === 1
+        ? COSTS.intakeRate * size
+        : COSTS.intakeRate * Math.pow(size, COSTS.intakeSizeExp);
+    const c = resCellIndex(posX[i]!, posY[i]!);
+
+    const availA = res[c]!;
+    const roomA = maxStore - eA;
+    if (availA > 0 && roomA > 0) {
+      let take = baseTake;
+      if (take > availA) take = availA;
+      const rt = roomA / effGain;
+      if (take > rt) take = rt;
+      eA += take * effGain;
+      res[c] = availA - take;
+    }
+
+    const availB = resB[c]!;
+    const roomB = maxStore - eB;
+    if (availB > 0 && roomB > 0) {
+      let take = baseTake;
+      if (take > availB) take = availB;
+      const rt = roomB / effGain;
+      if (take > rt) take = rt;
+      eB += take * effGain;
+      resB[c] = availB - take;
+    }
+
+    energy[i] = eA;
+    energyB[i] = eB;
   }
 }

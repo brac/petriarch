@@ -29,6 +29,11 @@ export const RESOURCES = {
   regionCenterY: 0.5, // both regions centered vertically
   regionSpreadX: 0.19, // clumps + ambient food scatter ±this·W around the anchor in x
   regionSpreadY: 0.42, // ±this·H in y (tall regions fill the vertical)
+  /** Trace cross-crop: each region also grows this FRACTION of the OTHER nutrient (Phase 1
+   * survivability — residents scrape by on a little of the scarce nutrient locally and breed
+   * slowly; trade later brings the abundant supply). 0 = pure separation (would starve a
+   * dual-nutrient population that can't cross the gap). */
+  regionCrossFrac: 0.22,
 
   // --- god: resource bloom ---
   /** radius (px) of a bloom drop. */

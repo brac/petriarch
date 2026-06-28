@@ -14,13 +14,15 @@ import {
 } from "../../data/capacity";
 import { COG, COGNITION } from "../../data/cognition";
 import { STIGMERGY } from "../../data/stigmergy";
+import { SIM } from "../../data/sim";
 
 const TAU = Math.PI * 2;
 
 export function steer(world: World): void {
   const a = world.agents;
-  const { posX, posY, genes, steerX, steerY, count } = a;
+  const { posX, posY, energy, energyB, genes, steerX, steerY, count } = a;
   const res = world.resources;
+  const resB = world.resourceB;
   const danger = world.danger;
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
@@ -87,8 +89,11 @@ export function steer(world: World): void {
       }
     }
 
-    // --- resource gradient: toward the richer of the 4-neighbor cells ---
-    // (FOOD off => skip the 4 resource-cell samples entirely)
+    // --- resource gradient: DEFICIT-SEEKING over both nutrients (Phase 1). For each
+    // nutrient the gradient points toward its richer 4-neighbor cell; each is weighted by how
+    // SHORT this agent is on that nutrient (deficit 0..1), so a B-starved agent is pulled
+    // toward nutrient B — across the gap toward the other region (the demand trade relieves).
+    // (FOOD off => skip the samples entirely.)
     let rgx = 0;
     let rgy = 0;
     if (onFood) {
@@ -103,8 +108,15 @@ export function steer(world: World): void {
       const yu = cy > 0 ? cy - 1 : cy;
       const yd = cy < gh - 1 ? cy + 1 : cy;
       const rowc = cy * gw;
-      rgx = res[rowc + xr]! - res[rowc + xl]!;
-      rgy = res[yd * gw + cx]! - res[yu * gw + cx]!;
+      const maxStore = genes[bi + GENE.SIZE]! * SIM.maxEnergyPerSize;
+      let dA = 1 - energy[i]! / maxStore;
+      if (dA < 0) dA = 0;
+      else if (dA > 1) dA = 1;
+      let dB = 1 - energyB[i]! / maxStore;
+      if (dB < 0) dB = 0;
+      else if (dB > 1) dB = 1;
+      rgx = (res[rowc + xr]! - res[rowc + xl]!) * dA + (resB[rowc + xr]! - resB[rowc + xl]!) * dB;
+      rgy = (res[yd * gw + cx]! - res[yu * gw + cx]!) * dA + (resB[yd * gw + cx]! - resB[yu * gw + cx]!) * dB;
       const l = Math.sqrt(rgx * rgx + rgy * rgy);
       if (l > 1e-4) {
         rgx /= l;

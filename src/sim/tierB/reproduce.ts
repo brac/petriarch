@@ -15,8 +15,9 @@ import { WORLD_W, WORLD_H, RES_CELL_W, RES_CELL_H, RESOURCE_GRID_W, RESOURCE_GRI
 
 export function reproduce(world: World): void {
   const a = world.agents;
-  const { energy, posX, posY, genes, lineageId } = a;
+  const { energy, energyB, posX, posY, genes, lineageId } = a;
   const res = world.resources;
+  const resB = world.resourceB;
   const rng = world.rng;
 
   // Population cap = the intensity slider's target (never above pool capacity).
@@ -30,11 +31,15 @@ export function reproduce(world: World): void {
     const size = genes[bi + GENE.SIZE]!;
     const maxE = size * SIM.maxEnergyPerSize;
     const threshE = genes[bi + GENE.REPRO_THRESHOLD]! * maxE;
-    const e = energy[i]!;
-    if (e < threshE) continue;
+    // Dual-nutrient diet: breeding needs BOTH stores above threshold (a balanced supply).
+    // A resident rich in its home nutrient but short on the other can't breed until it gets
+    // the scarce one — the demand trade will relieve. Survival (death.ts) needs only the sum.
+    const eA = energy[i]!;
+    const eB = energyB[i]!;
+    if (eA < threshE || eB < threshE) continue;
 
     const invest = threshE * SIM.reproInvestFrac;
-    if (e - invest <= 1) continue; // never breed yourself to death
+    if (eA - invest <= 1 || eB - invest <= 1) continue; // never breed yourself to death
 
     const litter = Math.max(1, Math.round(genes[bi + GENE.FERTILITY]!));
     const px = posX[i]!;
@@ -59,13 +64,14 @@ export function reproduce(world: World): void {
       let localFood = 0;
       for (let ny = y0; ny <= y1; ny++) {
         const row = ny * RESOURCE_GRID_W;
-        for (let nx = x0; nx <= x1; nx++) localFood += res[row + nx]!;
+        for (let nx = x0; nx <= x1; nx++) localFood += res[row + nx]! + resB[row + nx]!;
       }
       if (localFood < SIM.reproMinLocalFood * litter) continue; // desert → defer breeding
     }
 
-    energy[i] = e - invest;
-    const perChild = invest / litter;
+    energy[i] = eA - invest;
+    energyB[i] = eB - invest;
+    const perChild = invest / litter; // per offspring, of EACH nutrient store
     // Mutation scale modulated by the parent's MUTABILITY, with a floor so it can
     // drift but never lock to zero.
     const mut = SIM.baseMutationScale * (SIM.mutabilityFloor + genes[bi + GENE.MUTABILITY]!);
@@ -79,7 +85,7 @@ export function reproduce(world: World): void {
       else if (jx > WORLD_W) jx = WORLD_W;
       if (jy < 0) jy = 0;
       else if (jy > WORLD_H) jy = WORLD_H;
-      const k = a.spawn(jx, jy, perChild, lin);
+      const k = a.spawn(jx, jy, perChild, lin, perChild);
       if (k < 0) break;
       const bk = k * GENE_COUNT;
       for (let g = 0; g < GENE_COUNT; g++) {

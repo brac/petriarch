@@ -17,7 +17,7 @@ import { GENE_COUNT } from "../data/genome";
 import { MAX_AGENTS, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../data/capacity";
 
 const MAGIC = 0x50455452; // "PETR"
-const VERSION = 5; // v2:+claim; v3:+danger; v4:+passability; v5:+nutrient B (resourceB, resourceCapB)
+const VERSION = 6; // v2:+claim; v3:+danger; v4:+passability; v5:+nutrient B fields; v6:+energyB store
 const GRID_LEN = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 // Meta scalar slots (one Float64 each; holds uint32s and the sim clock exactly).
@@ -31,9 +31,9 @@ const META_LEN = 21;
 
 // The per-agent Float32 fields that ARE persistent state (not recomputed scratch),
 // in a fixed order shared by serialize + restore.
-const F32_COUNT = 9;
+const F32_COUNT = 10;
 function f32Fields(a: Agents): Float32Array[] {
-  return [a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.steerX, a.steerY, a.fightCd];
+  return [a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, a.steerX, a.steerY, a.fightCd];
 }
 
 /** Serialize the active set + resource field to a transferable ArrayBuffer. */

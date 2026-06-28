@@ -5,7 +5,9 @@
 
 export const SIM = {
   // --- initial conditions ---
-  initialPop: 700,
+  // Scaled with world area (700 → 2800 for the 4× map) so founders seed at the same density
+  // and each tribe still establishes a coherent cluster instead of starting too sparse.
+  initialPop: 2800,
   // 16 founder signatures: the SPIKE speciation study (docs/BUGS.md) found this ~doubles
   // the count of persistent societies (6→10 tag-space clusters at 10k ticks) vs 8, and it
   // lasts. >16 backfires — 20+ founders over-consolidate back toward ~5 by 10k.

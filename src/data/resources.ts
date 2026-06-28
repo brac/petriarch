@@ -13,8 +13,9 @@ export const RESOURCES = {
   cellCapacity: 14,
   /** 0 = uniform scatter, 1 = strong clumps. Shapes the capacity field at init. */
   clumping: 0.7,
-  /** number of rich "veins" seeded when clumping > 0. */
-  clumpCount: 14,
+  /** number of rich "veins" seeded when clumping > 0. Scaled with world area (14 → 56 for
+   * the 4× map) so vein density — and thus the food landscape's feel — stays constant. */
+  clumpCount: 56,
   /** fraction of cellCapacity a cell holds at world start (low → no boom into cap). */
   startFrac: 0.35,
 

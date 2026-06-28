@@ -7,9 +7,14 @@
  * it (CPU Tier B — conflict/reproduce/death/hash — becomes the wall before the GPU). */
 export const MAX_AGENTS = 20000;
 
-/** World is authored at a fixed size; the renderer letterboxes it to the window. */
-export const WORLD_W = 1920;
-export const WORLD_H = 1080;
+/** World is authored at a fixed size; the renderer letterboxes it to the window. 3840×2160
+ * = 4× the area of the original 1920×1080, for a much larger map (agent cap unchanged, so the
+ * population grows ~4× toward it as the bigger world's food supports it — same local density,
+ * more room for migration/speciation). Everything spatial derives from these: the resource/
+ * claim/danger grids, the spatial hash (ceil(W/cellSize)), the GPU buffers + uniforms, and the
+ * renderer letterbox. Re-verify the GPU path after changing them (grid dims feed the kernels). */
+export const WORLD_W = 3840;
+export const WORLD_H = 2160;
 
 // --- intensity slider mapping (see core/intensity.ts) ---
 /** Live population floor at intensity 0 (max intensity → MAX_AGENTS). */
@@ -33,8 +38,10 @@ export const MAX_SPARKS = 256;
  *  one per pointer event, so this only needs to cover a single frame's worth of input. */
 export const GOD_QUEUE_CAP = 512;
 
-// --- resource field grid --- ~24px cells over the 1920×1080 world.
-export const RESOURCE_GRID_W = 80;
-export const RESOURCE_GRID_H = 45;
+// --- resource field grid --- ~24px cells over the 3840×2160 world (grid doubled with the
+// world so the cell size — and thus food/territory granularity — stays the same, just more
+// of it). RES_CELL_W/H below stay 24×24.
+export const RESOURCE_GRID_W = 160;
+export const RESOURCE_GRID_H = 90;
 export const RES_CELL_W = WORLD_W / RESOURCE_GRID_W;
 export const RES_CELL_H = WORLD_H / RESOURCE_GRID_H;

@@ -168,8 +168,19 @@ GPU/CPU parity holds.
 seeds (hash/sense/steer/integrate/metabolism/chain, 0 mismatches); headless evolution
 unchanged; typecheck clean.
 
-## OPEN — Bigger map (feature, now decoupled from the drift)
-Still want a much larger world for more emergent behavior / less forced crowding — but this
-is now a pure feature request, NOT a drift fix (the down-right swim above was a sampling
-bias, not map size). Real work: WORLD_W/H touch the spatial hash grid, the resource field
-grid, and the GPU uniforms — size it as a deliberate change, not a drift workaround.
+## DONE — Bigger map (4× area)
+World enlarged to 3840×2160 (4× the area, 2× each dimension; agent cap kept at 20000). The
+resource/claim/danger grid was doubled to 160×90 so the cell size stays 24px (same food /
+territory granularity, just more of it), and clumpCount (14→56) + initialPop (700→2800) were
+scaled with area so vein and founder DENSITY stay constant. Everything spatial derives from
+WORLD_W/H + the grid constants, so the change is localized to data/{capacity,resources,sim}.ts;
+the spatial hash and ALL GPU buffers/uniforms auto-scale.
+- The population is food-bound, so it grows ~3-4× into the bigger world (~2.5k → ~7k+, still
+  under the 20k cap), at roughly the same local density → more room, more coexisting societies.
+- GPU parity re-verified on the real 3090 at the new dims (hash grid 60×34=2040 cells):
+  hash/sense/integrate/metabolism 0 mismatches, chain green (the lone steer 1-agent diff on
+  seed 2024 is the known within-cell-order flake, not a regression).
+- Perf note: Tier B (conflict/reproduce/death, CPU-only) now processes ~4× the agents, so CPU
+  logic exceeds its 4ms target at full intensity (still ~57fps; logic+render < frame budget).
+  GPU mode + the intensity slider are the relief valves — exactly the "CPU Tier B is the wall"
+  scaling CLAUDE.md predicts. Could re-validate the speciation tuning at the new size later.

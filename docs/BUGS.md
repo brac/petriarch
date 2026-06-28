@@ -60,10 +60,22 @@ enough food to keep the new ones alive. I think they are dying immediately. Coul
 prevent reproduction if there is not enough food to support the offspring for at least a
 little time? — Candidate for the evolution-tuning pass (gate reproduction on local food).
 
-## OPEN — Small sizes dominate
-The smaller sized agents always dominate eventually. I think this is because they can
-consume food more efficiently than the larger agents? How could we adjust that? —
-Tradeoff-invariant issue; address in the evolution study below.
+## OPEN — Small sizes dominate  →  see "Predation payoff" backlog
+The smaller sized agents always dominate eventually. The SPIKE study (below) confirmed this
+is mostly ORTHOGONAL to speciation: SIZE only rises with food concentration, which starves
+the world. Root issue is that big-bodied predation doesn't pay enough to hold a niche. The
+fix is the predation-payoff backlog item below.
+
+## BACKLOG — Predation payoff / big-body niche (the real "small sizes dominate" fix)
+Make SIZE+AGGRESSION a viable, self-sustaining strategy so big predators coexist with
+small foragers instead of being out-competed — WITHOUT concentrating food so hard the
+population starves (the failure mode seen at clumping 1.0: pop crashed to ~760). Levers to
+study (a focused headless pass like the SPIKE, measuring SIZE distribution + coexistence,
+not a single optimum): `CONFLICT.stealFrac` / `loserDamage` / `aggressionThreshold` /
+`contestResourceMin` (does winning a fight actually feed you enough to justify the body?),
+and the morphology cost curve (`SIM.sizeSpeedFactor`, `MORPH.*`, EFFICIENCY/RESILIENCE
+tradeoffs). Goal per docs/genome.md: frequency-dependent coexistence (predator vs forager),
+not a new monoculture. NOT yet started — tracked so it isn't lost.
 
 ## STUDIED — SPIKE: speciation study (diversity BETWEEN societies + cohesion WITHIN)
 Done via a headless study harness (`src/tools/spike.ts`, vite-node like headless). "Society

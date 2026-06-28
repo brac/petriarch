@@ -23,6 +23,7 @@ import { GENE, GENE_COUNT, GENE_RANGE } from "../data/genome";
 import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
 import { COGNITION } from "../data/cognition";
+import { CONFLICT } from "../data/conflict";
 
 // Fixed measurement ruler: cluster/score every config at this tag-space radius regardless
 // of the sim's own sigThreshold, so species counts are comparable across configs.
@@ -107,12 +108,14 @@ const DEF = {
   founderTribes: SIM.founderTribes, initialPop: SIM.initialPop,
   clumping: RESOURCES.clumping, clumpCount: RESOURCES.clumpCount, regrowthRate: RESOURCES.regrowthRate, cellCapacity: RESOURCES.cellCapacity,
   level: COGNITION.level, mask: COGNITION.mask,
+  contestResourceMin: CONFLICT.contestResourceMin,
 };
 function restore(): void {
   SIM.baseMutationScale = DEF.baseMutationScale; SIM.mutabilityFloor = DEF.mutabilityFloor; SIM.sigThreshold = DEF.sigThreshold;
   SIM.founderTribes = DEF.founderTribes; SIM.initialPop = DEF.initialPop;
   RESOURCES.clumping = DEF.clumping; RESOURCES.clumpCount = DEF.clumpCount; RESOURCES.regrowthRate = DEF.regrowthRate; RESOURCES.cellCapacity = DEF.cellCapacity;
   COGNITION.level = DEF.level; COGNITION.mask = DEF.mask;
+  CONFLICT.contestResourceMin = DEF.contestResourceMin;
 }
 type Override = Partial<typeof DEF>;
 function apply(o: Override): void {
@@ -124,6 +127,7 @@ function apply(o: Override): void {
     else if (key === "clumping" || key === "clumpCount" || key === "regrowthRate" || key === "cellCapacity") ro[key] = v;
     else if (key === "level") COGNITION.level = v;
     else if (key === "mask") COGNITION.mask = v;
+    else if (key === "contestResourceMin") (CONFLICT as unknown as Record<string, number>)[key] = v;
   }
 }
 
@@ -159,17 +163,19 @@ function fmt(m: Metrics & { name: string }): string {
 const SEEDS = [11, 22, 33, 44];
 const TICKS = 10000;
 
-// Phase 3: nail the between↔within frontier and confirm it PERSISTS (10k ticks, 4 seeds).
+// Phase 4: does PREDATION (low contestResourceMin) erode speciation/territorial diversity?
+// Everything else at current shipped defaults (found16, mut0.07, reproMinLocalFood4); only
+// contestResourceMin varies. "current" (0.5) is the shipped predation default; predOff (2.0)
+// is the old no-predation world. If species/F drop sharply as predation rises, the two
+// tunings fight each other.
 const CONFIGS: [string, Override][] = [
-  ["baseline", {}],
-  ["found16", { founderTribes: 16 }],
-  ["found20", { founderTribes: 20 }],
-  ["mut.06+found16", { baseMutationScale: 0.06, founderTribes: 16 }],
-  ["mut.06+found20", { baseMutationScale: 0.06, founderTribes: 20 }],
-  ["mut.07+found16", { baseMutationScale: 0.07, founderTribes: 16 }],
-  ["mut.06+found24", { baseMutationScale: 0.06, founderTribes: 24 }],
+  ["predOff (contest2.0)", { contestResourceMin: 2.0 }],
+  ["contest1.0", { contestResourceMin: 1.0 }],
+  ["contest0.75", { contestResourceMin: 0.75 }],
+  ["current (contest0.5)", { contestResourceMin: 0.5 }],
+  ["contest0.35", { contestResourceMin: 0.35 }],
 ];
 
-console.log(`# SPIKE speciation phase 3 (frontier+persistence) — seeds ${SEEDS.join(",")} ticks ${TICKS}, ruler sigT=${REF_SIGT}`);
-console.log(`# want: species UP, F UP, withinSig DOWN, withinBeh DOWN`);
+console.log(`# SPIKE phase 4 (predation vs speciation) — seeds ${SEEDS.join(",")} ticks ${TICKS}, ruler sigT=${REF_SIGT}`);
+console.log(`# species/F should NOT collapse as contestResourceMin drops (predation rises)`);
 for (const [name, o] of CONFIGS) console.log(fmt(runConfig(name, o, SEEDS, TICKS)));

@@ -40,6 +40,20 @@ Performance monitor → JS heap size`), so you can watch it live either way. The
 steady-state sawtooth investigation (is anything allocating in the hot path?) is still
 OPEN — fold into a profiling pass.
 
+I found the JS heap size in Performance monitor. Without food paint it's a little sawtooh from 47-70 mb. with f paint on like crazy it's big sawtooh between 75 and 200. I know I'm slamming it, but is it worth our time to optimize this further. I shoudl point out my base, small saw tooth is GPU mode full sim full cognition
+
+**VERDICT (not worth it now):** a sawtooth that returns to its floor (~47) = healthy GC
+reclaim, NOT a leak (a leak shows a rising floor / monotonic climb). Frame budget is met
+(logic ~1.8/4ms, render ~3.1/8ms, 120fps) so GC causes no hitches — absolute MB doesn't
+matter, pauses do. The base churn is outside the sim hot path: the WebGPU per-tick
+readback (mapAsync returns a fresh ArrayBuffer each sync) + Pixi render geometry; the
+zero-alloc invariant is about the per-agent sim systems, which are alloc-free by design.
+The 75–200 food-paint spike = population booming toward 20k → more render churn (+ a
+screenToWorld object per pointer event), not a hot-path violation. REVISIT only if frame
+stutter correlates with GC, or the sawtooth FLOOR climbs over minutes. Optional cheap
+insurance: a ~15s allocation-timeline with render minimized to confirm the sim path is
+flat.
+
 ## OPEN — Reproduction and Food availability
 Agents are reproducing because they have enough food to reproduce but they do not have
 enough food to keep the new ones alive. I think they are dying immediately. Could we
@@ -63,10 +77,33 @@ individual societies.
 There are clear borders in some cases. Could we have a display to only show those borders
 between societies?
 
-## OPEN — Bigger map
-We need a much larger map. At 20k the agents all do this weird swimming down and to the
-right. I think if we increased the world size then we could resolve that issue and allow
-for more emergent behaviors since we will not be running a separation sim.
-— NOTE: a *uniform* down-right drift across the whole population smells like a directional
-bias (a sign/RNG/wander asymmetry or an integration drift), not only crowding — worth
-diagnosing the drift direction independently before assuming map size alone fixes it.
+## FIXED — Down-right drift at 20k (was conflated with "bigger map")
+At 20k the whole population swam down-and-to-the-right. Diagnosed as a *directional
+sampling bias*, NOT crowding or map size: `sense` keeps the first `neighborBudget` (64)
+in-radius neighbors, but `SpatialHash.queryNeighbors` emits the 3×3 cells top-left →
+bottom-right, so the kept neighbors skew up-left and the leftover separation push drives
+everyone down-right. It only bit at 20k because that's where in-radius count (~109) first
+exceeds the 64 cap; below a few thousand agents the cap never triggers.
+
+**Proven** with a headless drift probe (seed 24301, 20k agents): mean velocity
+`(+10.6, +15.7)` px/s and centroid drift `(+9.0, +13.8)` px with the cap; both collapse to
+the noise floor when the cap is lifted.
+
+**Fix:** instead of taking the *first* `budget` neighbors, `sense` now **even-subsamples**
+them — pass 1 counts in-radius neighbors, pass 2 Bresenham-selects `min(nIn, budget)`
+evenly spread across the candidate list (spatially uniform → no directional bias), with a
+half-bucket phase offset (`acc = nIn>>1`) so selection doesn't skew toward either end.
+Mirrored in the WGSL `sense` kernel. Same sample SIZE as before (conflict's neighbor cache
+stays filled), just unbiased selection; uncapped agents still see the identical full set so
+GPU/CPU parity holds.
+
+**Verified:** post-fix drift probe `centroid (−0.04, +0.23)` ≈ the uncapped baseline; real-
+3090 GPU dense-20k run `centroid (−0.13, +0.05)`, mean vel ~0; verify suite green across 3
+seeds (hash/sense/steer/integrate/metabolism/chain, 0 mismatches); headless evolution
+unchanged; typecheck clean.
+
+## OPEN — Bigger map (feature, now decoupled from the drift)
+Still want a much larger world for more emergent behavior / less forced crowding — but this
+is now a pure feature request, NOT a drift fix (the down-right swim above was a sampling
+bias, not map size). Real work: WORLD_W/H touch the spatial hash grid, the resource field
+grid, and the GPU uniforms — size it as a deliberate change, not a drift workaround.

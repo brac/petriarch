@@ -66,9 +66,35 @@ fn senseMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let cx = clampCX(xi);
   let cy = clampCY(yi);
-  var sampled: u32 = 0u;
-  var capped = false;
 
+  // Pass 1: count in-radius neighbors. Mirrors CPU sense.ts — the budget caps how many
+  // we process, but keeping the FIRST budget-many skews the sample up-left (cells scan
+  // top-left to bottom-right) and drifts the population down-right; instead subsample
+  // evenly across the candidates, which needs the total up front.
+  var nIn: u32 = 0u;
+  for (var gy = cy - 1; gy <= cy + 1; gy = gy + 1) {
+    if (gy < 0 || gy >= i32(P.gridH)) { continue; }
+    for (var gx = cx - 1; gx <= cx + 1; gx = gx + 1) {
+      if (gx < 0 || gx >= i32(P.gridW)) { continue; }
+      let c = u32(gy) * P.gridW + u32(gx);
+      let e = cellStart[c + 1u];
+      for (var p = cellStart[c]; p < e; p = p + 1u) {
+        let j = items[p];
+        if (j == i) { continue; }
+        let dx = posX[j] - xi;
+        let dy = posY[j] - yi;
+        if (dx * dx + dy * dy > P.senseR2) { continue; }
+        nIn = nIn + 1u;
+      }
+    }
+  }
+  let take = select(P.budget, nIn, nIn < P.budget); // min(nIn, budget)
+
+  // Pass 2: Bresenham-select take-many evenly-spread in-radius neighbors (spatially
+  // uniform, no directional bias). nIn <= budget => take = nIn => every neighbor kept
+  // (same SET as the CPU pass = uncapped parity; capped agents may still diverge on
+  // within-cell scatter order, as before).
+  var acc: u32 = nIn >> 1u; // half-bucket phase: centers picks, kills the tail-skew residual
   for (var gy = cy - 1; gy <= cy + 1; gy = gy + 1) {
     if (gy < 0 || gy >= i32(P.gridH)) { continue; }
     for (var gx = cx - 1; gx <= cx + 1; gx = gx + 1) {
@@ -82,8 +108,9 @@ fn senseMain(@builtin(global_invocation_id) gid: vec3<u32>) {
         let dy = posY[j] - yi;
         let d2 = dx * dx + dy * dy;
         if (d2 > P.senseR2) { continue; }
-        sampled = sampled + 1u;
-        if (sampled > P.budget) { capped = true; break; }
+        acc = acc + take;
+        if (acc < nIn) { continue; }
+        acc = acc - nIn;
 
         let bj = j * GENE_COUNT;
         let dsa = genes[bj + G_SIGA] - sa;
@@ -108,9 +135,7 @@ fn senseMain(@builtin(global_invocation_id) gid: vec3<u32>) {
           avoidY = avoidY - dy * inv * threat;
         }
       }
-      if (capped) { break; }
     }
-    if (capped) { break; }
   }
 
   let o = i * OUT_STRIDE;

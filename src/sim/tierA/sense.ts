@@ -39,7 +39,31 @@ export function sense(world: World): void {
 
     hash.queryNeighbors(xi, yi, neighbors);
     const m = neighbors.length;
+
+    // The budget caps how many neighbors we process (a perf knob). Taking the *first*
+    // `budget` is what we must NOT do: queryNeighbors emits the 3×3 cells top-left →
+    // bottom-right, so the first `budget` skew up-left, and the leftover separation
+    // push drifts the WHOLE population down-right once density exceeds the cap. Instead
+    // subsample EVENLY across the candidate list. Pass 1: count in-radius neighbors.
+    let nIn = 0;
+    for (let k = 0; k < m; k++) {
+      const j = neighbors[k]!;
+      if (j === i) continue;
+      const dx = posX[j]! - xi;
+      const dy = posY[j]! - yi;
+      if (dx * dx + dy * dy > senseR2) continue;
+      nIn++;
+    }
+    // Keep min(nIn, budget), spread across the list. Bresenham accumulator: add `take`
+    // per in-radius hit; when it crosses nIn, keep that one. Selects exactly `take`,
+    // evenly spaced (spatially uniform → no directional bias). nIn ≤ budget ⇒ take=nIn
+    // ⇒ every neighbor kept (same SET as the GPU pass → parity for uncapped agents).
+    const take = nIn < budget ? nIn : budget;
     const nbase = i * NEIGHBOR_STRIDE;
+    // Start the accumulator half a bucket in so picks land mid-bucket, not at its end —
+    // an acc=0 start skews selection toward the list tail (bottom-right) and leaves a
+    // faint up-left residual drift.
+    let acc = nIn >> 1;
     let sampled = 0;
     for (let k = 0; k < m; k++) {
       const j = neighbors[k]!;
@@ -48,9 +72,12 @@ export function sense(world: World): void {
       const dy = posY[j]! - yi;
       const d2 = dx * dx + dy * dy;
       if (d2 > senseR2) continue;
-      if (++sampled > budget) break;
+      acc += take;
+      if (acc < nIn) continue; // not selected on this stride
+      acc -= nIn;
       // Record this neighbor in the shared cache for conflict to reuse.
-      neighborList[nbase + sampled - 1] = j;
+      neighborList[nbase + sampled] = j;
+      sampled++;
 
       const bj = j * GENE_COUNT;
       const dsa = genes[bj + GENE.SIG_A]! - sa;
@@ -86,6 +113,6 @@ export function sense(world: World): void {
     a.senseSepY[i] = sepY;
     a.senseAvoidX[i] = avoidX;
     a.senseAvoidY[i] = avoidY;
-    neighborCount[i] = sampled > budget ? budget : sampled;
+    neighborCount[i] = sampled;
   }
 }

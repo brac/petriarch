@@ -60,22 +60,35 @@ enough food to keep the new ones alive. I think they are dying immediately. Coul
 prevent reproduction if there is not enough food to support the offspring for at least a
 little time? — Candidate for the evolution-tuning pass (gate reproduction on local food).
 
-## OPEN — Small sizes dominate  →  see "Predation payoff" backlog
-The smaller sized agents always dominate eventually. The SPIKE study (below) confirmed this
-is mostly ORTHOGONAL to speciation: SIZE only rises with food concentration, which starves
-the world. Root issue is that big-bodied predation doesn't pay enough to hold a niche. The
-fix is the predation-payoff backlog item below.
+## STUDIED — Small sizes dominate → predation niche (fix found: contestResourceMin)
+The smaller sized agents always dominate (baseline: SIZE ~0.5, 94% foragers, 1.5% predators).
+The PREDATION study (harness `src/tools/predation.ts`) found the root cause is NOT weak
+predation payoff — it's that conflict is GATED on standing near contestable food
+(`CONFLICT.contestResourceMin=2`), but a predator hunts PREY, not food patches. So big
+predators can only fight at rich patches, where fast small foragers already out-forage them.
 
-## BACKLOG — Predation payoff / big-body niche (the real "small sizes dominate" fix)
-Make SIZE+AGGRESSION a viable, self-sustaining strategy so big predators coexist with
-small foragers instead of being out-competed — WITHOUT concentrating food so hard the
-population starves (the failure mode seen at clumping 1.0: pop crashed to ~760). Levers to
-study (a focused headless pass like the SPIKE, measuring SIZE distribution + coexistence,
-not a single optimum): `CONFLICT.stealFrac` / `loserDamage` / `aggressionThreshold` /
-`contestResourceMin` (does winning a fight actually feed you enough to justify the body?),
-and the morphology cost curve (`SIM.sizeSpeedFactor`, `MORPH.*`, EFFICIENCY/RESILIENCE
-tradeoffs). Goal per docs/genome.md: frequency-dependent coexistence (predator vs forager),
-not a new monoculture. NOT yet started — tracked so it isn't lost.
+FIX: lower `contestResourceMin` so big+aggressive bodies can hunt foragers across the
+inhabited map. Tail-averaged, 4 seeds × 10k ticks (persistent, not transient):
+  baseline (2.0): pop 3253, SIZE 0.48, predFrac  1.5%, forFrac 94%, corrSA 0.14
+  contest 1.0   : pop 2992, SIZE 0.69, predFrac 10.8%, forFrac 83%, corrSA 0.28  (subtle)
+  contest 0.5   : pop 2346, SIZE 1.09, predFrac 31.9%, forFrac 56%, corrSA 0.52  (prominent)
+- corrSA (Pearson SIZE×AGGRESSION) stays HIGH → a coherent predator class, not noise.
+- Foragers stay the MAJORITY and pop stays healthy → frequency-dependent COEXISTENCE
+  (predators are prey-limited), not a new monoculture or a starved world.
+- DON'T also raise loserDamage: high damage everywhere makes ALL agents want aggression
+  (aggr→0.75, corrSA→~0) — a universal arms race, not a distinct predator niche. Default
+  loserDamage keeps predation SIZE-leveraged (strength = SIZE×AGGRESSION). steal/mobility/
+  aggressionThreshold levers were minor; contestResourceMin is the unlock.
+
+APPLIED: `contestResourceMin 2 → 0.5` (prominent) in `src/data/conflict.ts`. Long-horizon
+validated (4 seeds × 18k, tail 16-18k): predFrac 36%, forFrac 58%, corrSA 0.57 — STABLE
+(barely moved from the 10k numbers: 32%/56%/0.52), so it's an equilibrium, not a transition.
+Notably `contestResourceMin 1.0` is WORSE long-term — predators FADE OUT by 18k (predFrac
+0.7%, vs 10.8% at 10k); only ≤0.75 sustains a lasting niche, and 0.5 is the most coherent.
+Caveat: some seeds (e.g. 24301) drift predator-heavy over very long runs (forager mass
+shrinks to ~14% but never vanishes) — emergent seed variation, not a uniform monoculture.
+Cleaner future code option (not done): decouple predation from food in conflict.ts (let
+high-SIZE+AGGRESSION agents initiate anywhere) instead of lowering the global food gate.
 
 ## STUDIED — SPIKE: speciation study (diversity BETWEEN societies + cohesion WITHIN)
 Done via a headless study harness (`src/tools/spike.ts`, vite-node like headless). "Society

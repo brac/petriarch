@@ -8,8 +8,14 @@ export const CONFLICT = {
   range: 45,
   /** at least one combatant must have AGGRESSION above this to start a fight. */
   aggressionThreshold: 0.45,
-  /** only fight near food: cell resource must exceed this for a patch to be worth it. */
-  contestResourceMin: 2,
+  /** Conflict trigger gate: a fighter's cell resource must exceed this. Set LOW (0.5, down
+   * from 2) so big+aggressive bodies can hunt foragers across the inhabited map, not only at
+   * rich patches — predation is about prey, not food. The predation study (docs/BUGS.md)
+   * found this is THE lever that fixes "small sizes dominate": it grows a coherent predator
+   * niche (~32%) that coexists with a forager majority (~56%) without starving the world.
+   * Don't pair it with a higher loserDamage — that turns aggression universal instead of a
+   * SIZE-leveraged predator trait. */
+  contestResourceMin: 0.5,
   /** energy the loser loses, scaled by the winner's SIZE. */
   loserDamage: 10,
   /** fraction of the loser's lost energy the winner robs — the spoils that give

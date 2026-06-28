@@ -41,6 +41,12 @@ export const SIM = {
   reproInvestFrac: 0.7,
   /** offspring spawn jitter around the parent (px). */
   birthJitter: 14,
+  /** Food-gate (reproduce.ts): an agent won't breed unless the resource summed over its
+   * 3×3 resource-cell block is at least this much PER offspring. Stops "breed into a desert
+   * → offspring starve at birth" churn; the agent keeps its energy and defers breeding until
+   * it reaches food. Environmental (reads the field, not the genome) so it is NOT a fitness
+   * score — it gates every lineage equally by where it stands. 0 = off. */
+  reproMinLocalFood: 4.0,
 
   // --- mutation (docs/genome.md §Mutation model) ---
   /** base per-gene mutation scale (× gene range span), modulated by MUTABILITY. This is the

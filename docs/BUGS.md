@@ -54,11 +54,26 @@ stutter correlates with GC, or the sawtooth FLOOR climbs over minutes. Optional 
 insurance: a ~15s allocation-timeline with render minimized to confirm the sim path is
 flat.
 
-## OPEN — Reproduction and Food availability
-Agents are reproducing because they have enough food to reproduce but they do not have
-enough food to keep the new ones alive. I think they are dying immediately. Could we
-prevent reproduction if there is not enough food to support the offspring for at least a
-little time? — Candidate for the evolution-tuning pass (gate reproduction on local food).
+## FIXED — Reproduction into a food desert (offspring starve at birth)
+Agents bred whenever their STORED energy hit REPRO_THRESHOLD, with no check on local food,
+so a parent that hoarded energy (or ate its patch dry) bred into a depleted area and the
+offspring starved immediately — huge wasteful born→die churn.
+
+FIX: an environmental food-gate in `reproduce.ts` (tunable `SIM.reproMinLocalFood`, default
+4.0). Before breeding, sum the resource in the parent's 3×3 resource-cell block (offspring
+spawn within ~1 cell) and require it to cover the litter (`reproMinLocalFood` per offspring);
+otherwise skip — the agent keeps its energy and defers breeding until it reaches food. Reads
+the FIELD not the genome, so it's NOT a fitness score (rule 10) — it gates every lineage
+equally by where it stands.
+
+STUDIED (`src/tools/reproduction.ts`, 3 seeds × 8k, tail-averaged) — sweep of the per-child
+food requirement:
+  0 (off): pop 2198, birth/1k 3273, starve 9.7%, meanEnergy 24%  (the wasteful churn)
+  4 (set): pop 2167, birth/1k 1496, starve 2.8%, meanEnergy 46%, meanAge 26→36s
+  8+     : churn falls further but pop drops (over-gating blocks legitimate breeding too)
+So 4 is the knee: ~0% population cost, churn more than halved, dying-newborn fraction cut
+9.7%→2.8%, population much healthier. Headless confirms evolution stays healthy (16 lineages
+persist, genes vary, births≈deaths). Tune `reproMinLocalFood` live in src/data/sim.ts.
 
 ## STUDIED — Small sizes dominate → predation niche (fix found: contestResourceMin)
 The smaller sized agents always dominate (baseline: SIZE ~0.5, 94% foragers, 1.5% predators).

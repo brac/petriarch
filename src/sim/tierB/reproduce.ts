@@ -4,17 +4,19 @@
 // to GENE_RANGE (docs/genome.md §Mutation model). Signature genes mutate like any
 // other — that drift is what creates new tribes over generations.
 //
-// NOT a fitness function (CLAUDE.md rule 10): the only gate is "fed enough to
-// breed". We never score agents and preferentially breed the high scorers.
+// NOT a fitness function (CLAUDE.md rule 10): the gates are "fed enough to breed" (stored
+// energy) and "standing where there's food to feed the litter" (local resource). Both read
+// energy/environment, never the genome — we never score agents and breed the high scorers.
 
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT, GENE_RANGE } from "../../data/genome";
 import { SIM } from "../../data/sim";
-import { WORLD_W, WORLD_H } from "../../data/capacity";
+import { WORLD_W, WORLD_H, RES_CELL_W, RES_CELL_H, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../../data/capacity";
 
 export function reproduce(world: World): void {
   const a = world.agents;
   const { energy, posX, posY, genes, lineageId } = a;
+  const res = world.resources;
   const rng = world.rng;
 
   // Population cap = the intensity slider's target (never above pool capacity).
@@ -33,16 +35,41 @@ export function reproduce(world: World): void {
 
     const invest = threshE * SIM.reproInvestFrac;
     if (e - invest <= 1) continue; // never breed yourself to death
-    energy[i] = e - invest;
 
     const litter = Math.max(1, Math.round(genes[bi + GENE.FERTILITY]!));
+    const px = posX[i]!;
+    const py = posY[i]!;
+
+    // Environmental food-gate: don't breed into a food desert — offspring spawn within ~1
+    // cell (birthJitter) and would just starve at birth (the wasteful born→die churn). Sum
+    // the resource in the parent's 3×3 resource-cell block and require it to cover the
+    // litter. Reads the FIELD, not the genome → not a fitness score; it just defers breeding
+    // until the agent reaches food (its energy is kept, not spent). reproMinLocalFood=0 → off.
+    if (SIM.reproMinLocalFood > 0) {
+      let cx = (px / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= RESOURCE_GRID_W) cx = RESOURCE_GRID_W - 1;
+      let cy = (py / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= RESOURCE_GRID_H) cy = RESOURCE_GRID_H - 1;
+      const x0 = cx > 0 ? cx - 1 : cx;
+      const x1 = cx < RESOURCE_GRID_W - 1 ? cx + 1 : cx;
+      const y0 = cy > 0 ? cy - 1 : cy;
+      const y1 = cy < RESOURCE_GRID_H - 1 ? cy + 1 : cy;
+      let localFood = 0;
+      for (let ny = y0; ny <= y1; ny++) {
+        const row = ny * RESOURCE_GRID_W;
+        for (let nx = x0; nx <= x1; nx++) localFood += res[row + nx]!;
+      }
+      if (localFood < SIM.reproMinLocalFood * litter) continue; // desert → defer breeding
+    }
+
+    energy[i] = e - invest;
     const perChild = invest / litter;
     // Mutation scale modulated by the parent's MUTABILITY, with a floor so it can
     // drift but never lock to zero.
     const mut = SIM.baseMutationScale * (SIM.mutabilityFloor + genes[bi + GENE.MUTABILITY]!);
     const lin = lineageId[i]!;
-    const px = posX[i]!;
-    const py = posY[i]!;
 
     for (let c = 0; c < litter; c++) {
       if (a.count >= cap) break;

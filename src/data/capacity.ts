@@ -29,6 +29,10 @@ export const HASH_CELL_SIZE = 64;
 /** Max simultaneous conflict sparks the renderer can show (pooled). */
 export const MAX_SPARKS = 256;
 
+/** Max god-perturbation commands buffered between sim ticks. A fast drag-paint enqueues
+ *  one per pointer event, so this only needs to cover a single frame's worth of input. */
+export const GOD_QUEUE_CAP = 512;
+
 // --- resource field grid --- ~24px cells over the 1920×1080 world.
 export const RESOURCE_GRID_W = 80;
 export const RESOURCE_GRID_H = 45;

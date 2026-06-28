@@ -9,6 +9,17 @@ const BUDGET_LOGIC_MS = 4;
 const BUDGET_RENDER_MS = 8;
 const THROTTLE_FRAMES = 12; // ~5Hz DOM writes at 60fps
 
+// Chrome-only, non-standard live JS heap. Lets us watch the zero-alloc invariant in BOTH
+// CPU and GPU mode (the DevTools heap graph is the same number, sampled live here). A
+// steady-state sawtooth = GC churn = something allocating in the hot path.
+interface PerfMemory {
+  usedJSHeapSize: number;
+}
+function heapMB(): number | null {
+  const mem = (performance as unknown as { memory?: PerfMemory }).memory;
+  return mem ? mem.usedJSHeapSize / (1024 * 1024) : null;
+}
+
 export class PerfOverlay {
   private el: HTMLElement;
   private frames = 0;
@@ -28,13 +39,16 @@ export class PerfOverlay {
     const logicFlag = loop.updateMs > BUDGET_LOGIC_MS ? " !" : "";
     const renderFlag = loop.renderMs > BUDGET_RENDER_MS ? " !" : "";
 
+    const heap = heapMB();
+    const heapLine = heap !== null ? `\nheap     ${heap.toFixed(1)}MB` : "";
+
     this.el.textContent =
       `fps      ${loop.fps.toFixed(0)}\n` +
       `logic    ${logic}ms / ${BUDGET_LOGIC_MS}ms${logicFlag}\n` +
       `render   ${render}ms / ${BUDGET_RENDER_MS}ms${renderFlag}\n` +
       `ticks    ${loop.ticksLastFrame}\n` +
       `simspeed ${loop.simSpeed.toFixed(1)}x\n` +
-      `agents   ${agentCount}` +
+      `agents   ${agentCount}${heapLine}` +
       (extra ? `\n${extra}` : "");
   }
 }

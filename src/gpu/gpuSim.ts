@@ -25,6 +25,7 @@ import { stigmergy } from "../sim/tierB/stigmergy";
 import { conflict } from "../sim/tierB/conflict";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
+import { drainGod } from "../sim/tierB/god";
 
 /** Last-tick timing split (ms), for the perf overlay: GPU round-trip vs CPU Tier B,
  *  with Tier B broken down per phase so the hot one is visible. */
@@ -43,6 +44,9 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   world.time += TICK_DT;
 
   const t0 = performance.now();
+  // Pools are stable here (the previous tick's readback already awaited at end of step),
+  // and the hash is current — so god commands apply cleanly, then get uploaded below.
+  drainGod(world); // 0 — apply buffered god perturbations before the GPU upload
   resources(world); // 1 — Tier B: regrow the field, age out the hazard
   stigmergy(world); // 1b — claim/territory field (CPU; claim never goes to the GPU)
   const tAfterRes = performance.now();
@@ -138,6 +142,9 @@ export class GpuPipeline {
     const u0 = performance.now();
     world.tick++;
     world.time += TICK_DT;
+    // Drain AFTER finalize() (which overwrote the pools with the readback and rebuilt the
+    // hash) and BEFORE the upload below — otherwise the readback would clobber the edits.
+    drainGod(world);
     resources(world);
     stigmergy(world); // claim/territory field (CPU; claim never goes to the GPU)
     const count = a.count;

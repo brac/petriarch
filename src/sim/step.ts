@@ -19,11 +19,13 @@ import { stigmergy } from "./tierB/stigmergy";
 import { conflict } from "./tierB/conflict";
 import { reproduce } from "./tierB/reproduce";
 import { death } from "./tierB/death";
+import { drainGod } from "./tierB/god";
 
 export function simStep(world: World): void {
   world.tick++;
   world.time += TICK_DT;
 
+  drainGod(world); // 0 — apply buffered god perturbations before any system reads the world
   resources(world); // 1
   stigmergy(world); // 1b — claim/territory field (deposit → diffuse → decay)
 

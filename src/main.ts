@@ -12,7 +12,7 @@ import { NetRenderer } from "./views/netRenderer";
 import { PerfOverlay } from "./views/perfOverlay";
 import { Hud } from "./views/hud";
 import { DevPanel } from "./views/devPanel";
-import { bloom, hazard, smite, paintPassability } from "./sim/tierB/god";
+import { enqueueGod, GOD } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
 import { PASSABILITY } from "./data/passability";
 import { GpuContext } from "./gpu/gpuContext";
@@ -172,23 +172,34 @@ function main(): void {
   });
 }
 
-// God toolkit — the player perturbs the world, never an individual:
+// God toolkit — the player perturbs the world, never an individual. Input only ENQUEUES
+// commands (enqueueGod); the sim applies them on its own tick so they work in GPU mode
+// (see god.ts). Tools:
 //   left-click   → resource bloom    (clusters race for it)
 //   right-click  → hazard zone       (a lineage is culled or driven to migrate)
 //   shift-click / X → smite          (thin the population in an area)
-//   B            → toggle ocean-paint mode; then left-drag paints an impassable barrier
-//                  (shift-drag erases it). The admin seeding tool: carve basins, watch
-//                  agents fail to cross while claim/danger still bleed over the water.
+//   B            → toggle ocean-paint; left-drag paints an impassable barrier, shift-drag
+//                  erases. The admin seeding tool: carve basins, watch agents fail to
+//                  cross while claim/danger still bleed over the water.
+//   F            → toggle food-paint; left-drag paints food, shift-drag erases it.
 function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World): void {
   let lastX = WORLD_W / 2;
   let lastY = WORLD_H / 2;
-  let paintMode = false;
+  // Active brush: 'none' = the click tools below; 'ocean' = passability; 'food' = resource.
+  // B and F toggle ocean/food and are mutually exclusive (turning one on clears the other).
+  let paint: "none" | "ocean" | "food" = "none";
 
-  // Paint the passability field at the pointer: shift erases (back to ground), else ocean.
-  const paintAt = (e: PointerEvent): void => {
+  // Apply the active brush at a pointer position (shift = erase). One command per event;
+  // a drag fires many pointermoves → many commands, all drained together next tick.
+  const brushAt = (e: PointerEvent): void => {
     const w = renderer.screenToWorld(e.clientX, e.clientY);
-    const cost = e.shiftKey ? PASSABILITY.defaultCost : PASSABILITY.oceanCost;
-    paintPassability(world, w.x, w.y, PASSABILITY.brushRadius, cost);
+    if (paint === "ocean") {
+      const cost = e.shiftKey ? PASSABILITY.defaultCost : PASSABILITY.oceanCost;
+      enqueueGod(world, GOD.PaintPass, w.x, w.y, PASSABILITY.brushRadius, cost);
+    } else {
+      const type = e.shiftKey ? GOD.FoodErase : GOD.Bloom;
+      enqueueGod(world, type, w.x, w.y, RESOURCES.bloomRadius);
+    }
   };
 
   canvasEl.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -197,17 +208,17 @@ function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World
     const w = renderer.screenToWorld(e.clientX, e.clientY);
     lastX = w.x;
     lastY = w.y;
-    // Paint mode reroutes the left button to the brush (the other god tools still work).
-    if (paintMode && e.button === 0) {
-      paintAt(e);
+    // A paint mode reroutes the left button to the brush (right-click hazard still works).
+    if (paint !== "none" && e.button === 0) {
+      brushAt(e);
       return;
     }
     if (e.button === 2) {
-      hazard(world, w.x, w.y, RESOURCES.hazardRadius);
+      enqueueGod(world, GOD.Hazard, w.x, w.y, RESOURCES.hazardRadius);
     } else if (e.button === 0 && e.shiftKey) {
-      smite(world, w.x, w.y, RESOURCES.smiteRadius);
+      enqueueGod(world, GOD.Smite, w.x, w.y, RESOURCES.smiteRadius);
     } else if (e.button === 0) {
-      bloom(world, w.x, w.y, RESOURCES.bloomRadius);
+      enqueueGod(world, GOD.Bloom, w.x, w.y, RESOURCES.bloomRadius);
     }
   });
 
@@ -216,15 +227,19 @@ function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World
     lastX = w.x;
     lastY = w.y;
     // Drag-paint while the left button is held (e.buttons bit 0).
-    if (paintMode && (e.buttons & 1) !== 0) paintAt(e);
+    if (paint !== "none" && (e.buttons & 1) !== 0) brushAt(e);
   });
 
   window.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "x" || e.key === "X") smite(world, lastX, lastY, RESOURCES.smiteRadius);
+    if (e.key === "x" || e.key === "X") enqueueGod(world, GOD.Smite, lastX, lastY, RESOURCES.smiteRadius);
     else if (e.key === "b" || e.key === "B") {
-      paintMode = !paintMode;
+      paint = paint === "ocean" ? "none" : "ocean";
       // eslint-disable-next-line no-console
-      console.info(`Petriarch: ocean-paint ${paintMode ? "ON (left-drag paints, shift-drag erases)" : "OFF"}`);
+      console.info(`Petriarch: ocean-paint ${paint === "ocean" ? "ON (left-drag paints, shift-drag erases)" : "OFF"}`);
+    } else if (e.key === "f" || e.key === "F") {
+      paint = paint === "food" ? "none" : "food";
+      // eslint-disable-next-line no-console
+      console.info(`Petriarch: food-paint ${paint === "food" ? "ON (left-drag paints, shift-drag erases)" : "OFF"}`);
     }
   });
 }

@@ -6,7 +6,10 @@
 export const SIM = {
   // --- initial conditions ---
   initialPop: 700,
-  founderTribes: 8, // distinct starting signatures → visible initial tribes
+  // 16 founder signatures: the SPIKE speciation study (docs/BUGS.md) found this ~doubles
+  // the count of persistent societies (6→10 tag-space clusters at 10k ticks) vs 8, and it
+  // lasts. >16 backfires — 20+ founders over-consolidate back toward ~5 by 10k.
+  founderTribes: 16,
 
   // --- energy ---
   /** max energy = SIZE * maxEnergyPerSize (bigger bodies store more). */
@@ -40,8 +43,11 @@ export const SIM = {
   birthJitter: 14,
 
   // --- mutation (docs/genome.md §Mutation model) ---
-  /** base per-gene mutation scale (× gene range span), modulated by MUTABILITY. */
-  baseMutationScale: 0.08,
+  /** base per-gene mutation scale (× gene range span), modulated by MUTABILITY. This is the
+   * between↔within-society dial (SPIKE study, docs/BUGS.md): lower = tighter/more monoethnic
+   * tribes but fewer species; higher = more species but looser. 0.07 (down from 0.08) with
+   * founderTribes 16 is the balanced "both" setting. */
+  baseMutationScale: 0.07,
   /** floor so MUTABILITY can drift but never lock evolution to zero. */
   mutabilityFloor: 0.05,
 }; // mutable: the dev panel tunes these live

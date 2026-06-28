@@ -65,13 +65,39 @@ The smaller sized agents always dominate eventually. I think this is because the
 consume food more efficiently than the larger agents? How could we adjust that? —
 Tradeoff-invariant issue; address in the evolution study below.
 
-## OPEN — SPIKE: Do a study yourself
-Using headless mode, run the simulation, look at the winners and losers and consider how
-we could adjust their weightings and genes to increase diversification amounts species
-while also increasing monoculture and monoethic society within the individual species.
-Include in your study various combinations of the sliders the same end, increasing
-diversification between societies while increasing monoculture/monoethnic traits within
-individual societies.
+## STUDIED — SPIKE: speciation study (diversity BETWEEN societies + cohesion WITHIN)
+Done via a headless study harness (`src/tools/spike.ts`, vite-node like headless). "Society
+/ species" = a cluster in signature tag-space (SIG_A/B/C, the thing KIN_COHESION + conflict
+read at `sigThreshold`). Metrics, tail-averaged over 4 seeds × 10k ticks, measured at a
+fixed ruler (sigT 0.22) so configs compare honestly:
+  species   = # tag-space clusters ≥ minSize         (between-diversity, want UP)
+  withinSig = within-species signature spread          (monoethnic, want DOWN)
+  withinBeh = within-species behavior-gene spread      (monoculture, want DOWN)
+  F         = Calinski-Harabasz between/within in SIG   (separation+cohesion, want UP)
+
+KEY FINDINGS:
+- **`founderTribes` sets the COUNT of societies.** 8→16 nearly doubles persistent species
+  (6.3 → 9.8 at 10k) — and it LASTS. But >16 backfires: 20/24 founders over-consolidate
+  back to ~4-6 by 10k (too crowded in tag-space, they merge/compete out). Sweet spot = 16.
+- **`baseMutationScale` is the between↔within DIAL.** Lower = tighter, more monoethnic
+  tribes (withinBeh↓, F↑↑) but fewer / slower-splitting species; higher = more splitting
+  but looser. It cannot raise both at once — it IS the tension axis.
+- **Best "both" = founderTribes 16 + baseMutationScale 0.07.** Pareto win over baseline on
+  BOTH axes: species 6.3→7.9, withinBeh 0.124→0.095 (tighter), between-separation
+  0.39→0.48 (more distinct), F ~2×. More societies, each more internally uniform and more
+  clearly separated. (Lean the mutation to 0.06 for fewer-but-tighter; keep 0.08 for
+  max ~10 societies.)
+- **Negative results:** strong clumping (clump 1.0) STARVES the population (763 survivors);
+  removing KIN_COHESION loosens within-cohesion (kin does real assortative work — keep it).
+- **"Small sizes dominate" is mostly orthogonal** to speciation: these tunings push SIZE
+  *down* (more founders → more small foragers). SIZE rises only with food concentration,
+  which starves the world — so fixing small-dominance needs a predation-payoff tweak
+  (CONFLICT.stealFrac / loserDamage / a size niche), tracked separately below.
+
+APPLIED: balanced defaults baked into `src/data/sim.ts` — `founderTribes 8→16`,
+`baseMutationScale 0.08→0.07` (validated: that exact config = species 7.9, withinBeh 0.095,
+between 0.48 at 10k×4 seeds). Optional follow-up not done: expose founderTribes as a
+dev-panel re-seed control for live experimentation.
 
 ## OPEN — Borders
 There are clear borders in some cases. Could we have a display to only show those borders

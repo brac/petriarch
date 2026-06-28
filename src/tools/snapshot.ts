@@ -17,7 +17,7 @@ import { GENE_COUNT } from "../data/genome";
 import { MAX_AGENTS, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../data/capacity";
 
 const MAGIC = 0x50455452; // "PETR"
-const VERSION = 4; // v2: + claim fields (mag, sigA/B/C); v3: + danger field; v4: + passability
+const VERSION = 5; // v2:+claim; v3:+danger; v4:+passability; v5:+nutrient B (resourceB, resourceCapB)
 const GRID_LEN = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 // Meta scalar slots (one Float64 each; holds uint32s and the sim clock exactly).
@@ -44,10 +44,10 @@ export function serializeWorld(world: World): ArrayBuffer {
 
   // Layout (all 4-byte-aligned; the lone Uint8 array goes last):
   //   meta(f64×META_LEN) | F32_COUNT×f32[n] | lineageId i32[n] | genes f32[n*gc]
-  //   | resources f32[GRID] | resourceCap f32[GRID]
+  //   | resources f32[GRID] | resourceCap f32[GRID] | resourceB f32[GRID] | resourceCapB f32[GRID]
   //   | claimMag f32[GRID] | claimSigA/B/C f32[GRID] | danger f32[GRID]
   //   | passability f32[GRID] | alive u8[n]
-  const GRID_FIELDS = 8; // resources, resourceCap, claimMag, claimSigA/B/C, danger, passability
+  const GRID_FIELDS = 10; // the 8 below + resourceB + resourceCapB
   const bytes =
     META_LEN * 8 + F32_COUNT * n * 4 + n * 4 + n * gc * 4 + GRID_LEN * 4 * GRID_FIELDS + n * 1;
   const buf = new ArrayBuffer(bytes);
@@ -87,6 +87,8 @@ export function serializeWorld(world: World): ArrayBuffer {
   put(a.genes.subarray(0, n * gc));
   put(world.resources);
   put(world.resourceCap);
+  put(world.resourceB);
+  put(world.resourceCapB);
   put(world.claimMag);
   put(world.claimSigA);
   put(world.claimSigB);
@@ -126,6 +128,8 @@ export function restoreWorld(world: World, buf: ArrayBuffer): void {
   a.genes.set(readF32(n * gc));
   world.resources.set(readF32(GRID_LEN));
   world.resourceCap.set(readF32(GRID_LEN));
+  world.resourceB.set(readF32(GRID_LEN));
+  world.resourceCapB.set(readF32(GRID_LEN));
   world.claimMag.set(readF32(GRID_LEN));
   world.claimSigA.set(readF32(GRID_LEN));
   world.claimSigB.set(readF32(GRID_LEN));

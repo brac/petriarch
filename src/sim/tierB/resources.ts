@@ -9,6 +9,8 @@ import { PASSABILITY } from "../../data/passability";
 export function resources(world: World): void {
   const res = world.resources;
   const cap = world.resourceCap;
+  const resB = world.resourceB;
+  const capB = world.resourceCapB;
   const pass = world.passability;
   const block = PASSABILITY.blockThreshold;
   const rate = RESOURCES.regrowthRate;
@@ -19,11 +21,16 @@ export function resources(world: World): void {
     // barrier auto-restores regrow next tick — no separate bookkeeping on the paint tool.
     if (pass[c]! >= block) {
       res[c] = 0;
+      resB[c] = 0;
       continue;
     }
     const target = cap[c]!;
     const v = res[c]! + rate;
     res[c] = v > target ? target : v;
+    // Nutrient B regrows the same way toward its own (region-shaped) capacity.
+    const targetB = capB[c]!;
+    const vB = resB[c]! + rate;
+    resB[c] = vB > targetB ? targetB : vB;
   }
 
   // Hazard zones fade over time.

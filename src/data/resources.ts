@@ -19,6 +19,17 @@ export const RESOURCES = {
   /** fraction of cellCapacity a cell holds at world start (low → no boom into cap). */
   startFrac: 0.35,
 
+  // --- two-good worldgen (foundation for inter-region trade) --- nutrient A (`resources`)
+  // and nutrient B (`resourceB`) clump in SEPARATE regions with a barren gap between, so two
+  // societies form and must eventually trade across the dead zone (a desert: passable, no
+  // food). Centers/spreads are fractions of world W/H; the gap is the band where neither
+  // region reaches. `clumpCount` is split evenly between A (left) and B (right).
+  regionACenterX: 0.24, // A-region anchor x (left)
+  regionBCenterX: 0.76, // B-region anchor x (right)
+  regionCenterY: 0.5, // both regions centered vertically
+  regionSpreadX: 0.19, // clumps + ambient food scatter ±this·W around the anchor in x
+  regionSpreadY: 0.42, // ±this·H in y (tall regions fill the vertical)
+
   // --- god: resource bloom ---
   /** radius (px) of a bloom drop. */
   bloomRadius: 140,

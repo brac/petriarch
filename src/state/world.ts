@@ -68,6 +68,12 @@ export interface World {
   readonly resources: Float32Array;
   /** Per-cell regrow target (the capacity field, shaped at init by clumping). */
   readonly resourceCap: Float32Array;
+  // Nutrient B: a SECOND resource field seeded in a separate region from nutrient A
+  // (= `resources`). Foundation for two-good trade (sim/init.ts two-region worldgen).
+  // Phase 0: regrown + rendered but NOT yet consumed (Phase 1's dual-nutrient diet makes
+  // it edible). CPU-only like the claim field — never uploaded to the GPU. Same grid.
+  readonly resourceB: Float32Array;
+  readonly resourceCapB: Float32Array;
   // Stigmergy `claim` (territory) field — continuous signature-accumulation, same
   // grid as resources. Mean signature = claimSig{A,B,C}/claimMag → the depositing
   // tribe's hue. Deposited/diffused/decayed by tierB/stigmergy.ts; render-only.
@@ -105,6 +111,8 @@ export function createWorld(seed: number): World {
     rng: new Rng(seed),
     resources: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     resourceCap: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    resourceB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    resourceCapB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimMag: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),

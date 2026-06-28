@@ -34,7 +34,8 @@ const OFFSCREEN = -10000;
 const NODE_TEX_RADIUS = 16; // node texture radius (px); per-agent scale multiplies it
 const NODE_SCALE = 0.5; // SIZE gene → sprite scale
 const RES_MAX_ALPHA = 0.5; // a full resource cell's glow alpha
-const RES_TINT = 0x2ec86a; // food green
+const RES_TINT = 0x2ec86a; // nutrient A — food green
+const RES_B_TINT = 0xc8329b; // nutrient B — magenta (the second region's good)
 const CLAIM_SAT = 0.7; // territory hue saturation (claim encodes lineage, not morphology)
 const CLAIM_LUM = 0.5; // territory hue lightness
 const CLAIM_EPS = 1e-3; // below this magnitude a cell is unclaimed (alpha 0)
@@ -74,6 +75,7 @@ export class NetRenderer {
   private nodeHigh = 0;
 
   private resParticles: Particle[] = [];
+  private resBParticles: Particle[] = [];
   private claimParticles: Particle[] = [];
   private dangerParticles: Particle[] = [];
   private passabilityParticles: Particle[] = [];
@@ -119,6 +121,8 @@ export class NetRenderer {
     this.claimParticles = claimLayer.particles;
     const resLayer = this.buildCellLayer(cellTex, RES_TINT);
     this.resParticles = resLayer.particles;
+    const resBLayer = this.buildCellLayer(cellTex, RES_B_TINT);
+    this.resBParticles = resBLayer.particles;
     const dangerLayer = this.buildCellLayer(cellTex, DANGER_TINT);
     this.dangerParticles = dangerLayer.particles;
 
@@ -146,6 +150,7 @@ export class NetRenderer {
       passabilityLayer.container,
       claimLayer.container,
       resLayer.container,
+      resBLayer.container,
       dangerLayer.container,
       this.edgeLayer,
       this.nodeContainer,
@@ -165,6 +170,7 @@ export class NetRenderer {
     this.drawPassability(world);
     this.drawClaim(world);
     this.drawResources(world);
+    this.drawResourceB(world);
     this.drawDanger(world);
     this.drawNodes(world);
     this.drawEdges(world);
@@ -230,6 +236,19 @@ export class NetRenderer {
   private drawResources(world: World): void {
     const res = world.resources;
     const parts = this.resParticles;
+    const inv = 1 / RESOURCES.cellCapacity;
+    for (let c = 0; c < parts.length; c++) {
+      let v = res[c]! * inv;
+      if (v < 0) v = 0;
+      else if (v > 1) v = 1;
+      parts[c]!.alpha = v * RES_MAX_ALPHA;
+    }
+  }
+
+  // Nutrient B glow (magenta) — same scale as nutrient A; reveals the second region.
+  private drawResourceB(world: World): void {
+    const res = world.resourceB;
+    const parts = this.resBParticles;
     const inv = 1 / RESOURCES.cellCapacity;
     for (let c = 0; c < parts.length; c++) {
       let v = res[c]! * inv;

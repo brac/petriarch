@@ -164,6 +164,13 @@ function main(): void {
 
   window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "g" || e.key === "G") void toggleGpu();
+    // 'v' → borders display: isolate the seams between societies (a view toggle, no sim
+    // effect). Works in both CPU and GPU mode (renders from world.hash either way).
+    else if (e.key === "v" || e.key === "V") {
+      const on = renderer.toggleBorders();
+      // eslint-disable-next-line no-console
+      console.info(`Petriarch: borders display ${on ? "ON" : "OFF"}`);
+    }
   });
 
   void renderer.init(appEl).then(() => {

@@ -47,10 +47,26 @@ const EDGE_ALPHA = 0.16;
 const EDGE_MAX = 4000; // hard cap on edges drawn per frame
 const EDGE_K = 3; // edges per agent
 
+// Border-seam display (a view toggle, press 'v' — no sim effect). The DUAL of the kin
+// mesh: bright segments on the frontier between spatially-adjacent, signature-DISSIMILAR
+// agents (i.e. two different societies touching). To "only show the borders" it also
+// drops the kin mesh and ghosts the nodes so the seams dominate (the claim/territory turf
+// stays, since its blended hue already marks the regions the seams divide).
+const BORDER_TINT = 0xff2bd6; // neon magenta — distinct from kin cyan / food green / danger red
+const BORDER_ALPHA = 0.55;
+const BORDER_RANGE = 50; // px: societies "touch" within this (tighter than senseRadius)
+const BORDER_MAX = 6000; // hard cap on seams drawn per frame
+const BORDER_K = 4; // seams per agent (a frontier agent can border several outsiders)
+const BORDER_NODE_ALPHA = 0.16; // nodes ghosted in border mode so the seams read clearly
+const BORDER_SEG_LO = 0.3; // draw the seam as the MIDDLE of the pair line (0.3..0.7) so it
+const BORDER_SEG_HI = 0.7; // sits on the frontier and doesn't smother either node
+
 export class NetRenderer {
   readonly app = new Application();
   private world = new Container(); // camera root (world space)
   private edgeLayer = new Graphics();
+  private borderLayer = new Graphics();
+  private borderMode = false;
 
   private nodeContainer!: ParticleContainer;
   private nodeParticles: Particle[] = [];
@@ -126,6 +142,7 @@ export class NetRenderer {
       dangerLayer.container,
       this.edgeLayer,
       this.nodeContainer,
+      this.borderLayer,
       this.sparkContainer,
       border,
     );
@@ -144,8 +161,15 @@ export class NetRenderer {
     this.drawDanger(world);
     this.drawNodes(world);
     this.drawEdges(world);
+    this.drawBorders(world);
     this.drawSparks(world);
     this.app.renderer.render(this.app.stage);
+  }
+
+  /** View toggle: isolate the borders between societies. Returns the new state. */
+  toggleBorders(): boolean {
+    this.borderMode = !this.borderMode;
+    return this.borderMode;
   }
 
   /** Convert a DOM/client point to world coordinates (for god-tool placement). */
@@ -225,6 +249,8 @@ export class NetRenderer {
     const a = world.agents;
     const { posX, posY, energy, genes, count } = a;
     const parts = this.nodeParticles;
+    // In border mode the nodes are ghosted so the magenta seams dominate the frame.
+    const aScale = this.borderMode ? BORDER_NODE_ALPHA : 1;
     for (let i = 0; i < count; i++) {
       const p = parts[i]!;
       p.x = posX[i]!;
@@ -235,7 +261,7 @@ export class NetRenderer {
       p.scaleY = sc;
       p.tint = nodeTint(genes, i);
       const maxE = size * SIM.maxEnergyPerSize;
-      p.alpha = 0.3 + 0.7 * clamp01(energy[i]! / maxE);
+      p.alpha = (0.3 + 0.7 * clamp01(energy[i]! / maxE)) * aScale;
     }
     for (let i = count; i < this.nodeHigh; i++) {
       parts[i]!.x = OFFSCREEN;
@@ -250,6 +276,7 @@ export class NetRenderer {
   private drawEdges(world: World): void {
     const g = this.edgeLayer;
     g.clear();
+    if (this.borderMode) return; // border view hides the kin mesh
 
     const a = world.agents;
     const { posX, posY, genes, count } = a;
@@ -286,6 +313,54 @@ export class NetRenderer {
       }
     }
     if (edges > 0) g.stroke({ width: 1, color: EDGE_TINT, alpha: EDGE_ALPHA });
+  }
+
+  // Border seams (the dual of the kin mesh, only when border mode is on): for each
+  // spatially-adjacent pair whose signatures are FAR apart (different societies), draw a
+  // short bright segment on the frontier between them. The accumulation of seams along a
+  // contact line reads as the border. Same hash-query pattern + per-frame caps as the kin
+  // mesh, so it stays under render budget. Uses world.hash (current in CPU and GPU mode).
+  private drawBorders(world: World): void {
+    const g = this.borderLayer;
+    g.clear();
+    if (!this.borderMode) return;
+
+    const a = world.agents;
+    const { posX, posY, genes, count } = a;
+    const hash = world.hash;
+    const nbr = this.edgeNbr;
+    const borderR2 = BORDER_RANGE * BORDER_RANGE;
+    const sigT = SIM.sigThreshold;
+    let seams = 0;
+
+    for (let i = 0; i < count && seams < BORDER_MAX; i++) {
+      const xi = posX[i]!;
+      const yi = posY[i]!;
+      const bi = i * GENE_COUNT;
+      const sa = genes[bi + GENE.SIG_A]!;
+      const sb = genes[bi + GENE.SIG_B]!;
+      const sc = genes[bi + GENE.SIG_C]!;
+      hash.queryNeighbors(xi, yi, nbr);
+      const m = nbr.length;
+      let drawn = 0;
+      for (let k = 0; k < m && drawn < BORDER_K; k++) {
+        const j = nbr[k]!;
+        if (j <= i) continue; // each pair once
+        const dx = posX[j]! - xi;
+        const dy = posY[j]! - yi;
+        if (dx * dx + dy * dy > borderR2) continue;
+        const bj = j * GENE_COUNT;
+        const dsa = genes[bj + GENE.SIG_A]! - sa;
+        const dsb = genes[bj + GENE.SIG_B]! - sb;
+        const dsc = genes[bj + GENE.SIG_C]! - sc;
+        if (Math.sqrt(dsa * dsa + dsb * dsb + dsc * dsc) < sigT) continue; // same society → no seam
+        // segment over the MIDDLE of the pair line so it lands on the frontier
+        g.moveTo(xi + dx * BORDER_SEG_LO, yi + dy * BORDER_SEG_LO).lineTo(xi + dx * BORDER_SEG_HI, yi + dy * BORDER_SEG_HI);
+        drawn++;
+        if (++seams >= BORDER_MAX) break;
+      }
+    }
+    if (seams > 0) g.stroke({ width: 1.5, color: BORDER_TINT, alpha: BORDER_ALPHA });
   }
 
   private drawSparks(world: World): void {

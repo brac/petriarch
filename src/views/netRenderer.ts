@@ -47,19 +47,20 @@ const EDGE_ALPHA = 0.16;
 const EDGE_MAX = 4000; // hard cap on edges drawn per frame
 const EDGE_K = 3; // edges per agent
 
-// Border-seam display (a view toggle, press 'v' — no sim effect). The DUAL of the kin
-// mesh: bright segments on the frontier between spatially-adjacent, signature-DISSIMILAR
-// agents (i.e. two different societies touching). To "only show the borders" it also
-// drops the kin mesh and ghosts the nodes so the seams dominate (the claim/territory turf
-// stays, since its blended hue already marks the regions the seams divide).
-const BORDER_TINT = 0xff2bd6; // neon magenta — distinct from kin cyan / food green / danger red
-const BORDER_ALPHA = 0.55;
-const BORDER_RANGE = 50; // px: societies "touch" within this (tighter than senseRadius)
-const BORDER_MAX = 6000; // hard cap on seams drawn per frame
-const BORDER_K = 4; // seams per agent (a frontier agent can border several outsiders)
-const BORDER_NODE_ALPHA = 0.16; // nodes ghosted in border mode so the seams read clearly
-const BORDER_SEG_LO = 0.3; // draw the seam as the MIDDLE of the pair line (0.3..0.7) so it
-const BORDER_SEG_HI = 0.7; // sits on the frontier and doesn't smother either node
+// Border display (a view toggle, press 'v' — no sim effect). Each frame we rasterize the
+// RAW agent signatures into the food grid (the same 80×45 grid the resource field uses) —
+// each cell's society = the mean signature of the agents standing in it — then draw the
+// shared edge between any two adjacent cells whose societies differ by >= sigThreshold.
+// Grid-aligned edges accumulate into ONE connected jagged arc along the frontier between
+// two societies, instead of spikes radiating from individual agents. We use the raw agent
+// signatures (not the diffused claim field) so the boundary stays crisp — diffusion would
+// smear the signatures across the seam and the contour would dissolve. To "only show the
+// borders" the mode also drops the kin mesh and ghosts the nodes. CPU-only; the renderer
+// already reads agent positions each frame, so it works in CPU and GPU mode.
+const BORDER_TINT = 0xffe600; // bright yellow — high contrast against every society hue
+const BORDER_ALPHA = 0.85;
+const BORDER_NODE_ALPHA = 0.16; // nodes ghosted in border mode so the contour reads clearly
+const BORDER_CELL_MIN = 1; // min agents in a cell for it to have a society (else skip the cell)
 
 export class NetRenderer {
   readonly app = new Application();
@@ -84,6 +85,12 @@ export class NetRenderer {
 
   // Reused scratch for edge neighbor queries (zero alloc per frame).
   private edgeNbr: number[] = [];
+
+  // Border-contour scratch: per-food-cell agent-signature accumulation (zero alloc/frame).
+  private bSigA = new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+  private bSigB = new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+  private bSigC = new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+  private bCnt = new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
 
   async init(parent: HTMLElement): Promise<void> {
     await this.app.init({
@@ -315,11 +322,10 @@ export class NetRenderer {
     if (edges > 0) g.stroke({ width: 1, color: EDGE_TINT, alpha: EDGE_ALPHA });
   }
 
-  // Border seams (the dual of the kin mesh, only when border mode is on): for each
-  // spatially-adjacent pair whose signatures are FAR apart (different societies), draw a
-  // short bright segment on the frontier between them. The accumulation of seams along a
-  // contact line reads as the border. Same hash-query pattern + per-frame caps as the kin
-  // mesh, so it stays under render budget. Uses world.hash (current in CPU and GPU mode).
+  // Border contour (only in border mode): rasterize agent signatures into the food grid,
+  // then draw the shared edge between adjacent cells whose mean society signature differs
+  // by >= sigThreshold. Grid-aligned segments accumulate into one jagged arc tracing the
+  // frontier between two societies. O(agents + grid cells), zero alloc (reused scratch).
   private drawBorders(world: World): void {
     const g = this.borderLayer;
     g.clear();
@@ -327,40 +333,72 @@ export class NetRenderer {
 
     const a = world.agents;
     const { posX, posY, genes, count } = a;
-    const hash = world.hash;
-    const nbr = this.edgeNbr;
-    const borderR2 = BORDER_RANGE * BORDER_RANGE;
-    const sigT = SIM.sigThreshold;
-    let seams = 0;
+    const gw = RESOURCE_GRID_W;
+    const gh = RESOURCE_GRID_H;
+    const sa = this.bSigA, sb = this.bSigB, sc = this.bSigC, cnt = this.bCnt;
+    sa.fill(0);
+    sb.fill(0);
+    sc.fill(0);
+    cnt.fill(0);
 
-    for (let i = 0; i < count && seams < BORDER_MAX; i++) {
-      const xi = posX[i]!;
-      const yi = posY[i]!;
+    // Rasterize: accumulate each agent's signature into its food-grid cell.
+    for (let i = 0; i < count; i++) {
+      let cx = (posX[i]! / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= gw) cx = gw - 1;
+      let cy = (posY[i]! / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= gh) cy = gh - 1;
+      const c = cy * gw + cx;
       const bi = i * GENE_COUNT;
-      const sa = genes[bi + GENE.SIG_A]!;
-      const sb = genes[bi + GENE.SIG_B]!;
-      const sc = genes[bi + GENE.SIG_C]!;
-      hash.queryNeighbors(xi, yi, nbr);
-      const m = nbr.length;
-      let drawn = 0;
-      for (let k = 0; k < m && drawn < BORDER_K; k++) {
-        const j = nbr[k]!;
-        if (j <= i) continue; // each pair once
-        const dx = posX[j]! - xi;
-        const dy = posY[j]! - yi;
-        if (dx * dx + dy * dy > borderR2) continue;
-        const bj = j * GENE_COUNT;
-        const dsa = genes[bj + GENE.SIG_A]! - sa;
-        const dsb = genes[bj + GENE.SIG_B]! - sb;
-        const dsc = genes[bj + GENE.SIG_C]! - sc;
-        if (Math.sqrt(dsa * dsa + dsb * dsb + dsc * dsc) < sigT) continue; // same society → no seam
-        // segment over the MIDDLE of the pair line so it lands on the frontier
-        g.moveTo(xi + dx * BORDER_SEG_LO, yi + dy * BORDER_SEG_LO).lineTo(xi + dx * BORDER_SEG_HI, yi + dy * BORDER_SEG_HI);
-        drawn++;
-        if (++seams >= BORDER_MAX) break;
+      sa[c]! += genes[bi + GENE.SIG_A]!;
+      sb[c]! += genes[bi + GENE.SIG_B]!;
+      sc[c]! += genes[bi + GENE.SIG_C]!;
+      cnt[c]!++;
+    }
+
+    const sigT2 = SIM.sigThreshold * SIM.sigThreshold;
+    const minCnt = BORDER_CELL_MIN;
+    let segs = 0;
+    for (let cy = 0; cy < gh; cy++) {
+      for (let cx = 0; cx < gw; cx++) {
+        const c = cy * gw + cx;
+        const nc = cnt[c]!;
+        if (nc < minCnt) continue; // empty cell → no society
+        const inv = 1 / nc;
+        const ax = sa[c]! * inv, ay = sb[c]! * inv, az = sc[c]! * inv;
+
+        // right neighbor → shared vertical edge at the cells' boundary
+        if (cx + 1 < gw) {
+          const r = c + 1;
+          const nr = cnt[r]!;
+          if (nr >= minCnt) {
+            const ir = 1 / nr;
+            const da = sa[r]! * ir - ax, db = sb[r]! * ir - ay, dc = sc[r]! * ir - az;
+            if (da * da + db * db + dc * dc >= sigT2) {
+              const x = (cx + 1) * RES_CELL_W;
+              g.moveTo(x, cy * RES_CELL_H).lineTo(x, (cy + 1) * RES_CELL_H);
+              segs++;
+            }
+          }
+        }
+        // bottom neighbor → shared horizontal edge
+        if (cy + 1 < gh) {
+          const d = c + gw;
+          const nd = cnt[d]!;
+          if (nd >= minCnt) {
+            const id = 1 / nd;
+            const da = sa[d]! * id - ax, db = sb[d]! * id - ay, dc = sc[d]! * id - az;
+            if (da * da + db * db + dc * dc >= sigT2) {
+              const y = (cy + 1) * RES_CELL_H;
+              g.moveTo(cx * RES_CELL_W, y).lineTo((cx + 1) * RES_CELL_W, y);
+              segs++;
+            }
+          }
+        }
       }
     }
-    if (seams > 0) g.stroke({ width: 1.5, color: BORDER_TINT, alpha: BORDER_ALPHA });
+    if (segs > 0) g.stroke({ width: 2, color: BORDER_TINT, alpha: BORDER_ALPHA });
   }
 
   private drawSparks(world: World): void {

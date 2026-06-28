@@ -340,8 +340,10 @@ export async function verifyIntegrate(world: World, gpu: GpuContext): Promise<In
   a.velX.set(snapVX);
   a.velY.set(snapVY);
 
-  // GPU: same inputs (positions, velocities, the same steer vector, genes).
-  gpu.integrateBuild(snapX, snapY, snapVX, snapVY, snapSteer, snapGenes, count);
+  // GPU: same inputs (positions, velocities, the same steer vector, genes, passability).
+  // CPU integrate reads world.passability live; pass the same field so both block/throttle
+  // identically (with the default all-1 field this is a no-op and the check is unaffected).
+  gpu.integrateBuild(snapX, snapY, snapVX, snapVY, snapSteer, snapGenes, world.passability, count);
   const out = await gpu.readIntegrate();
 
   let mismatches = 0;
@@ -545,6 +547,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   gpu.uploadState(snapX, snapY, snapVX, snapVY, snapEnergy, snapAge, snapGenes, count);
   gpu.uploadResources(snapRes);
   gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
+  gpu.uploadPassability(world.passability); // integrate reads it; mirror the live upload
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();
 

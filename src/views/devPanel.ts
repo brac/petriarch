@@ -10,6 +10,7 @@
 import type { World } from "../state/world";
 import type { Hud } from "./hud";
 import { serializeWorld, restoreWorld } from "../tools/snapshot";
+import { clearBarriers } from "../sim/tierB/god";
 import { SIM } from "../data/sim";
 import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
@@ -189,6 +190,24 @@ export class DevPanel {
       presetRow.appendChild(btn);
     }
     body.appendChild(presetRow);
+
+    // --- terrain (passability) ---
+    const terrGroup = document.createElement("div");
+    terrGroup.className = "dp-group";
+    terrGroup.textContent = "Terrain";
+    body.appendChild(terrGroup);
+
+    const terrHint = document.createElement("div");
+    terrHint.className = "dp-val";
+    terrHint.style.whiteSpace = "pre-wrap";
+    terrHint.textContent = "press B → ocean-paint\nleft-drag paints · shift-drag erases";
+    body.appendChild(terrHint);
+
+    const clearTerr = document.createElement("button");
+    clearTerr.className = "dp-reset";
+    clearTerr.textContent = "clear barriers";
+    clearTerr.addEventListener("click", () => clearBarriers(world));
+    body.appendChild(clearTerr);
 
     // --- snapshot / restore ---
     const snapGroup = document.createElement("div");

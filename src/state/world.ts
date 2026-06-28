@@ -7,6 +7,7 @@ import { Rng } from "../core/rng";
 import { SpatialHash } from "../core/spatialHash";
 import { createIntensityState, type IntensityState } from "../core/intensity";
 import { Agents } from "./pools";
+import { PASSABILITY } from "../data/passability";
 import {
   MAX_AGENTS,
   HASH_CELL_SIZE,
@@ -61,6 +62,11 @@ export interface World {
   // Stigmergy `danger` field — deposited on death (death.ts), diffused/decayed by
   // tierB/stigmergy.ts, read by steer as a descend gradient (flee). Same grid.
   readonly danger: Float32Array;
+  // Passability (movement-cost) field — static admin/construction substrate, same grid.
+  // Default 1 (normal ground); a painted ocean/wall is a huge sentinel cost. Read in the
+  // integrate hot path (CPU + GPU) to block/throttle the step; written by the paint tool
+  // (god.ts) and, later, the construction tier. Never decays. See data/passability.ts.
+  readonly passability: Float32Array;
   readonly hazard: Hazard;
   readonly sparks: SparkPool;
   readonly intensity: IntensityState;
@@ -86,6 +92,13 @@ export function createWorld(seed: number): World {
     claimSigB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigC: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     danger: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    // Default ground cost is 1, not 0 — fill after allocation (zero would read as a
+    // free/super-fast cell to the integrator's throttle).
+    passability: ((): Float32Array => {
+      const p = new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
+      p.fill(PASSABILITY.defaultCost);
+      return p;
+    })(),
     hazard: { x: 0, y: 0, r: 0, life: 0 },
     sparks: { x: new Float32Array(MAX_SPARKS), y: new Float32Array(MAX_SPARKS), count: 0 },
     intensity: createIntensityState(),

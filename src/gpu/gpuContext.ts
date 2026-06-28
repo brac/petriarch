@@ -24,6 +24,7 @@ import { COSTS } from "../data/costs";
 import { MORPH } from "../data/morphology";
 import { COGNITION } from "../data/cognition";
 import { STIGMERGY } from "../data/stigmergy";
+import { PASSABILITY } from "../data/passability";
 import { TICK_DT } from "../core/time";
 
 /** Hazard zone params for the metabolism pass (from World.hazard). */
@@ -121,11 +122,12 @@ export class GpuContext {
   private readonly velXBuf: GPUBuffer;
   private readonly velYBuf: GPUBuffer;
 
-  // --- integrate pass (per-agent physics; reads steer, reads+writes pos/vel in place) ---
+  // --- integrate pass (per-agent physics; reads steer + passability, reads+writes pos/vel) ---
+  private readonly passabilityBuf: GPUBuffer;
   private readonly intParamsBuf: GPUBuffer;
   private readonly intBindGroup: GPUBindGroup;
   private readonly pipeIntegrate: GPUComputePipeline;
-  private readonly intParamsHost = new ArrayBuffer(48);
+  private readonly intParamsHost = new ArrayBuffer(64);
   private readonly intParamsU32 = new Uint32Array(this.intParamsHost);
   private readonly intParamsF32 = new Float32Array(this.intParamsHost);
 
@@ -294,7 +296,9 @@ export class GpuContext {
     // --- integrate pass: consumes steerOut, reads+writes pos/vel in place ---
     this.velXBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.velYBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-    this.intParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    // Passability field: static movement-cost grid the integrate pass reads (default 1).
+    this.passabilityBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.intParamsBuf = buf(64, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     const readBuf = (n: number): GPUBuffer => buf(n, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.posXRead = readBuf(capacity * f32);
     this.posYRead = readBuf(capacity * f32);
@@ -313,6 +317,7 @@ export class GpuContext {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeIntegrate = dev.createComputePipeline({
@@ -329,6 +334,7 @@ export class GpuContext {
         { binding: 4, resource: { buffer: this.velYBuf } },
         { binding: 5, resource: { buffer: this.steerOutBuf } },
         { binding: 6, resource: { buffer: this.genesBuf } },
+        { binding: 7, resource: { buffer: this.passabilityBuf } },
       ],
     });
 
@@ -431,6 +437,11 @@ export class GpuContext {
     this.intParamsF32[6] = SIM.baseMaxSpeed;
     this.intParamsF32[7] = TICK_DT;
     this.intParamsF32[8] = MORPH.effSpeedPenalty;
+    this.intParamsU32[9] = RESOURCE_GRID_W;
+    this.intParamsU32[10] = RESOURCE_GRID_H;
+    this.intParamsF32[11] = RES_CELL_W;
+    this.intParamsF32[12] = RES_CELL_H;
+    this.intParamsF32[13] = PASSABILITY.blockThreshold;
     this.queue.writeBuffer(this.intParamsBuf, 0, this.intParamsHost);
   }
 
@@ -595,9 +606,11 @@ export class GpuContext {
     velY: Float32Array,
     steerInterleaved: Float32Array,
     genes: Float32Array,
+    passability: Float32Array,
     count: number,
   ): void {
     this.writeIntParams(count);
+    this.queue.writeBuffer(this.passabilityBuf, 0, passability as Float32Array<ArrayBuffer>, 0, RES_CELLS);
 
     if (count > 0) {
       this.queue.writeBuffer(this.posXBuf, 0, posX as Float32Array<ArrayBuffer>, 0, count);
@@ -734,6 +747,11 @@ export class GpuContext {
   /** Upload the danger field (read-only; steer descends its gradient). */
   uploadDanger(danger: Float32Array): void {
     this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload the passability field (read-only; integrate blocks/throttles the step). */
+  uploadPassability(passability: Float32Array): void {
+    this.queue.writeBuffer(this.passabilityBuf, 0, passability as Float32Array<ArrayBuffer>, 0, RES_CELLS);
   }
 
   /**

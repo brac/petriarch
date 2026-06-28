@@ -12,8 +12,9 @@ import { NetRenderer } from "./views/netRenderer";
 import { PerfOverlay } from "./views/perfOverlay";
 import { Hud } from "./views/hud";
 import { DevPanel } from "./views/devPanel";
-import { bloom, hazard, smite } from "./sim/tierB/god";
+import { bloom, hazard, smite, paintPassability } from "./sim/tierB/god";
 import { RESOURCES } from "./data/resources";
+import { PASSABILITY } from "./data/passability";
 import { GpuContext } from "./gpu/gpuContext";
 import { GpuPipeline, gpuTiming } from "./gpu/gpuSim";
 
@@ -175,9 +176,20 @@ function main(): void {
 //   left-click   → resource bloom    (clusters race for it)
 //   right-click  → hazard zone       (a lineage is culled or driven to migrate)
 //   shift-click / X → smite          (thin the population in an area)
+//   B            → toggle ocean-paint mode; then left-drag paints an impassable barrier
+//                  (shift-drag erases it). The admin seeding tool: carve basins, watch
+//                  agents fail to cross while claim/danger still bleed over the water.
 function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World): void {
   let lastX = WORLD_W / 2;
   let lastY = WORLD_H / 2;
+  let paintMode = false;
+
+  // Paint the passability field at the pointer: shift erases (back to ground), else ocean.
+  const paintAt = (e: PointerEvent): void => {
+    const w = renderer.screenToWorld(e.clientX, e.clientY);
+    const cost = e.shiftKey ? PASSABILITY.defaultCost : PASSABILITY.oceanCost;
+    paintPassability(world, w.x, w.y, PASSABILITY.brushRadius, cost);
+  };
 
   canvasEl.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -185,6 +197,11 @@ function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World
     const w = renderer.screenToWorld(e.clientX, e.clientY);
     lastX = w.x;
     lastY = w.y;
+    // Paint mode reroutes the left button to the brush (the other god tools still work).
+    if (paintMode && e.button === 0) {
+      paintAt(e);
+      return;
+    }
     if (e.button === 2) {
       hazard(world, w.x, w.y, RESOURCES.hazardRadius);
     } else if (e.button === 0 && e.shiftKey) {
@@ -198,10 +215,17 @@ function wireGodTools(canvasEl: HTMLElement, renderer: NetRenderer, world: World
     const w = renderer.screenToWorld(e.clientX, e.clientY);
     lastX = w.x;
     lastY = w.y;
+    // Drag-paint while the left button is held (e.buttons bit 0).
+    if (paintMode && (e.buttons & 1) !== 0) paintAt(e);
   });
 
   window.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "x" || e.key === "X") smite(world, lastX, lastY, RESOURCES.smiteRadius);
+    else if (e.key === "b" || e.key === "B") {
+      paintMode = !paintMode;
+      // eslint-disable-next-line no-console
+      console.info(`Petriarch: ocean-paint ${paintMode ? "ON (left-drag paints, shift-drag erases)" : "OFF"}`);
+    }
   });
 }
 

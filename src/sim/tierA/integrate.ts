@@ -8,12 +8,16 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { MORPH } from "../../data/morphology";
+import { PASSABILITY } from "../../data/passability";
 import { WORLD_W, WORLD_H } from "../../data/capacity";
+import { resCellIndex } from "../grid";
 import { TICK_DT } from "../../core/time";
 
 export function integrate(world: World): void {
   const a = world.agents;
   const { posX, posY, velX, velY, steerX, steerY, genes, count } = a;
+  const passability = world.passability;
+  const block = PASSABILITY.blockThreshold;
   const dt = TICK_DT;
   const accel = SIM.steerAccel;
   const bounce = SIM.wallBounce;
@@ -64,6 +68,26 @@ export function integrate(world: World): void {
     } else if (ny > WORLD_H) {
       ny = WORLD_H;
       vy = -vy * bounce;
+    }
+
+    // Passability: sample the target cell's movement cost. An ocean/wall (cost ≥ block)
+    // is impassable — stay put and reflect off the coast, like a world bound. Costed
+    // terrain (cost ≠ 1) scales the step: < 1 speeds it (road), > 1 slows it (swamp).
+    // With the default all-1 field both branches are no-ops (and the GPU pass matches).
+    const cost = passability[resCellIndex(nx, ny)]!;
+    if (cost >= block) {
+      nx = posX[i]!;
+      ny = posY[i]!;
+      vx = -vx * bounce;
+      vy = -vy * bounce;
+    } else if (cost !== 1) {
+      const s = 1 / cost;
+      nx = posX[i]! + (nx - posX[i]!) * s;
+      ny = posY[i]! + (ny - posY[i]!) * s;
+      if (nx < 0) nx = 0;
+      else if (nx > WORLD_W) nx = WORLD_W;
+      if (ny < 0) ny = 0;
+      else if (ny > WORLD_H) ny = WORLD_H;
     }
 
     posX[i] = nx;

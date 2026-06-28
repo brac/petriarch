@@ -4,6 +4,7 @@
 
 import type { World } from "../../state/world";
 import { RESOURCES } from "../../data/resources";
+import { PASSABILITY } from "../../data/passability";
 import {
   RES_CELL_W,
   RES_CELL_H,
@@ -40,6 +41,40 @@ export function bloom(world: World, x: number, y: number, r: number): void {
       resources[c] = cap;
     }
   }
+}
+
+/**
+ * Admin paint: write a static movement cost into the passability field within radius
+ * (the first writer into that field — docs/PETRIARCH_FEATURE_passability). Paint
+ * `oceanCost` to carve an impassable basin border; paint `defaultCost` to erase. Static,
+ * never decays. Same cell-loop shape as bloom.
+ */
+export function paintPassability(world: World, x: number, y: number, r: number, cost: number): void {
+  const pass = world.passability;
+  const r2 = r * r;
+  let cx0 = ((x - r) / RES_CELL_W) | 0;
+  let cx1 = ((x + r) / RES_CELL_W) | 0;
+  let cy0 = ((y - r) / RES_CELL_H) | 0;
+  let cy1 = ((y + r) / RES_CELL_H) | 0;
+  if (cx0 < 0) cx0 = 0;
+  if (cy0 < 0) cy0 = 0;
+  if (cx1 >= RESOURCE_GRID_W) cx1 = RESOURCE_GRID_W - 1;
+  if (cy1 >= RESOURCE_GRID_H) cy1 = RESOURCE_GRID_H - 1;
+  for (let cy = cy0; cy <= cy1; cy++) {
+    const py = (cy + 0.5) * RES_CELL_H;
+    for (let cx = cx0; cx <= cx1; cx++) {
+      const px = (cx + 0.5) * RES_CELL_W;
+      const dx = px - x;
+      const dy = py - y;
+      if (dx * dx + dy * dy > r2) continue;
+      pass[cy * RESOURCE_GRID_W + cx] = cost;
+    }
+  }
+}
+
+/** Reset the whole passability field to normal ground (wipe all painted barriers). */
+export function clearBarriers(world: World): void {
+  world.passability.fill(PASSABILITY.defaultCost);
 }
 
 /** Hazard zone: an energy-draining region that fades over hazardTicks. */

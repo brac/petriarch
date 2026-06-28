@@ -28,6 +28,7 @@ import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
+import { PASSABILITY } from "../data/passability";
 
 const OFFSCREEN = -10000;
 const NODE_TEX_RADIUS = 16; // node texture radius (px); per-agent scale multiplies it
@@ -58,6 +59,7 @@ export class NetRenderer {
   private resParticles: Particle[] = [];
   private claimParticles: Particle[] = [];
   private dangerParticles: Particle[] = [];
+  private passabilityParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
   private sparkParticles: Particle[] = [];
@@ -88,6 +90,8 @@ export class NetRenderer {
     const cellTex = this.app.renderer.generateTexture(
       new Graphics().rect(0, 0, RES_CELL_W, RES_CELL_H).fill(0xffffff),
     );
+    const passabilityLayer = this.buildCellLayer(cellTex, PASSABILITY.oceanTint);
+    this.passabilityParticles = passabilityLayer.particles;
     const claimLayer = this.buildCellLayer(cellTex, 0xffffff);
     this.claimParticles = claimLayer.particles;
     const resLayer = this.buildCellLayer(cellTex, RES_TINT);
@@ -112,10 +116,11 @@ export class NetRenderer {
     this.sparkContainer = sparkPool.container;
     this.sparkParticles = sparkPool.particles;
 
-    // Layer order. Claim/territory sits just above the dark field as a ground tint,
-    // under the resource glow and the agents.
+    // Layer order. Ocean (passability) is the base terrain just above the dark field;
+    // claim/territory sits over it as a ground tint, under the resource glow and agents.
     this.world.addChild(
       field,
+      passabilityLayer.container,
       claimLayer.container,
       resLayer.container,
       dangerLayer.container,
@@ -133,6 +138,7 @@ export class NetRenderer {
 
   /** Read state and draw one frame. No decisions here. */
   render(world: World, _alpha: number): void {
+    this.drawPassability(world);
     this.drawClaim(world);
     this.drawResources(world);
     this.drawDanger(world);
@@ -153,6 +159,18 @@ export class NetRenderer {
   }
 
   // --- draw passes ---
+
+  // Ocean / barriers: a flat blue tint on impassable cells (the painted passability
+  // field). Static, but cheap to redraw each frame alongside the other cell layers.
+  private drawPassability(world: World): void {
+    const pass = world.passability;
+    const parts = this.passabilityParticles;
+    const block = PASSABILITY.blockThreshold;
+    const a = PASSABILITY.oceanAlpha;
+    for (let c = 0; c < parts.length; c++) {
+      parts[c]!.alpha = pass[c]! >= block ? a : 0;
+    }
+  }
 
   // Territory turf: each cell's mean accumulated signature → that tribe's hue; alpha
   // from claim magnitude. Borders read as a blended hue where two tribes' claims mix.

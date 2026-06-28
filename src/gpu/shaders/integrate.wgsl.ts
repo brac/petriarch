@@ -22,18 +22,23 @@ struct Params {
   baseMaxSpeed    : f32,
   dt              : f32,
   effSpeedPenalty : f32,
+  resGridW        : u32,
+  resGridH        : u32,
+  resCellW        : f32,
+  resCellH        : f32,
+  passBlock       : f32, // target cost >= this → impassable (ocean/wall)
   _p0             : f32,
   _p1             : f32,
-  _p2             : f32,
 };
 
-@group(0) @binding(0) var<uniform>             P     : Params;
-@group(0) @binding(1) var<storage, read_write> posX  : array<f32>;
-@group(0) @binding(2) var<storage, read_write> posY  : array<f32>;
-@group(0) @binding(3) var<storage, read_write> velX  : array<f32>;
-@group(0) @binding(4) var<storage, read_write> velY  : array<f32>;
-@group(0) @binding(5) var<storage, read>       steer : array<f32>;
-@group(0) @binding(6) var<storage, read>       genes : array<f32>;
+@group(0) @binding(0) var<uniform>             P           : Params;
+@group(0) @binding(1) var<storage, read_write> posX        : array<f32>;
+@group(0) @binding(2) var<storage, read_write> posY        : array<f32>;
+@group(0) @binding(3) var<storage, read_write> velX        : array<f32>;
+@group(0) @binding(4) var<storage, read_write> velY        : array<f32>;
+@group(0) @binding(5) var<storage, read>       steer       : array<f32>;
+@group(0) @binding(6) var<storage, read>       genes       : array<f32>;
+@group(0) @binding(7) var<storage, read>       passability : array<f32>;
 
 @compute @workgroup_size(64)
 fn integrateMain(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -70,6 +75,28 @@ fn integrateMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   else if (nx > P.worldW) { nx = P.worldW; vx = -vx * P.bounce; }
   if (ny < 0.0) { ny = 0.0; vy = -vy * P.bounce; }
   else if (ny > P.worldH) { ny = P.worldH; vy = -vy * P.bounce; }
+
+  // Passability (mirror of CPU integrate): sample the target cell's movement cost. An
+  // ocean/wall (cost >= passBlock) is impassable — stay put and reflect off the coast.
+  // Costed terrain (cost != 1) scales the step: <1 road (faster), >1 swamp (slower).
+  // Default all-1 field → both branches are no-ops, so this matches the CPU pass exactly.
+  let gw = i32(P.resGridW);
+  let gh = i32(P.resGridH);
+  let cx = clamp(i32(floor(nx / P.resCellW)), 0, gw - 1);
+  let cy = clamp(i32(floor(ny / P.resCellH)), 0, gh - 1);
+  let cost = passability[u32(cy * gw + cx)];
+  if (cost >= P.passBlock) {
+    nx = posX[i];
+    ny = posY[i];
+    vx = -vx * P.bounce;
+    vy = -vy * P.bounce;
+  } else if (cost != 1.0) {
+    let s = 1.0 / cost;
+    nx = posX[i] + (nx - posX[i]) * s;
+    ny = posY[i] + (ny - posY[i]) * s;
+    nx = clamp(nx, 0.0, P.worldW);
+    ny = clamp(ny, 0.0, P.worldH);
+  }
 
   posX[i] = nx;
   posY[i] = ny;

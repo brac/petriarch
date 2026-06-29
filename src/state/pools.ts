@@ -20,6 +20,8 @@ export class Agents {
   /** Cumulative spawns/kills over the run — for headless births/deaths stats. */
   bornTotal = 0;
   diedTotal = 0;
+  /** Cumulative barter swaps (trade.ts) — a trade-volume stat (not serialized). */
+  tradeTotal = 0;
 
   // --- per-agent scalar fields (each its own typed array) ---
   readonly posX: Float32Array;

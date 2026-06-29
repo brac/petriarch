@@ -31,6 +31,7 @@ const REPORT: ReadonlyArray<{ key: string; gene: number; sd: boolean }> = [
   { key: "FERT", gene: GENE.FERTILITY, sd: false },
   { key: "MUT", gene: GENE.MUTABILITY, sd: false },
   { key: "AGGR", gene: GENE.AGGRESSION, sd: true },
+  { key: "TRADE", gene: GENE.TRADE, sd: true },
 ];
 
 function meanSd(w: World, gene: number): [number, number] {

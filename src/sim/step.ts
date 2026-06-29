@@ -3,7 +3,7 @@
 // they can never drift. Advances one TICK_DT of sim time over the World.
 //
 // Order (docs/simulation-systems.md §Tier map): resources → [sense → steer] →
-// integrate → metabolism → conflict → reproduce → death → rebuild hash. Thinking
+// integrate → metabolism → conflict → trade → reproduce → death → rebuild hash. Thinking
 // (sense+steer) is gated to every THINK_INTERVAL ticks; its steering output is
 // cached for the integrator to consume every tick. Conflict runs every tick,
 // reusing the neighbor cache on think ticks.
@@ -17,6 +17,7 @@ import { metabolism } from "./tierA/metabolism";
 import { resources } from "./tierB/resources";
 import { stigmergy } from "./tierB/stigmergy";
 import { conflict } from "./tierB/conflict";
+import { trade } from "./tierB/trade";
 import { reproduce } from "./tierB/reproduce";
 import { death } from "./tierB/death";
 import { drainGod } from "./tierB/god";
@@ -40,6 +41,7 @@ export function simStep(world: World): void {
   integrate(world); // 4
   metabolism(world); // 5
   conflict(world, didThink); // 6
+  trade(world, didThink); // 6b — cooperative barter at non-hostile complementary encounters
   reproduce(world); // 7
   death(world); // 8
 

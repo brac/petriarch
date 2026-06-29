@@ -23,6 +23,7 @@ import { SIM } from "../data/sim";
 import { resources } from "../sim/tierB/resources";
 import { stigmergy } from "../sim/tierB/stigmergy";
 import { conflict } from "../sim/tierB/conflict";
+import { trade } from "../sim/tierB/trade";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
 import { drainGod } from "../sim/tierB/god";
@@ -80,6 +81,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   world.hash.build(a.posX, a.posY, count); // 6
   const tHash = performance.now();
   conflict(world, false); // 7
+  trade(world, false); // 7b — cooperative barter (Tier B, CPU; own neighbor query like conflict)
   const tConflict = performance.now();
   reproduce(world); // 8
   const tReproduce = performance.now();
@@ -114,6 +116,7 @@ export class GpuPipeline {
     world.hash.build(a.posX, a.posY, a.count);
     const tHash = performance.now();
     conflict(world, false);
+    trade(world, false);
     const tConflict = performance.now();
     reproduce(world);
     const tReproduce = performance.now();

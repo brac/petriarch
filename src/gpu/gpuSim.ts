@@ -53,8 +53,9 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
 
   const count = a.count;
   if (count > 0) {
-    gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);
+    gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, a.genes, count);
     gpu.uploadResources(world.resources);
+    gpu.uploadResourcesB(world.resourceB);
     gpu.uploadDanger(world.danger);
     gpu.uploadPassability(world.passability);
 
@@ -70,7 +71,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
     gpu.runTierA(count, true, world.tick, senseP, hazP); // 2-5 — Tier A resident chain
 
     // One combined, zero-alloc readback straight into the world pools (one sync point).
-    await gpu.downloadAll(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, world.resources, count);
+    await gpu.downloadAll(a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, world.resources, world.resourceB, count);
   }
   const tAfterGpu = performance.now();
 
@@ -108,7 +109,7 @@ export class GpuPipeline {
   /** Apply the in-flight tick's readback to the pools and run its Tier B. */
   private finalize(world: World): void {
     const a = world.agents;
-    this.gpu.finishReadback(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, world.resources, this.inflightCount!);
+    this.gpu.finishReadback(a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, world.resources, world.resourceB, this.inflightCount!);
     const tHash0 = performance.now();
     world.hash.build(a.posX, a.posY, a.count);
     const tHash = performance.now();
@@ -149,8 +150,9 @@ export class GpuPipeline {
     stigmergy(world); // claim/territory field (CPU; claim never goes to the GPU)
     const count = a.count;
     if (count > 0) {
-      this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.age, a.genes, count);
+      this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, a.genes, count);
       this.gpu.uploadResources(world.resources);
+      this.gpu.uploadResourcesB(world.resourceB);
       this.gpu.uploadDanger(world.danger);
       this.gpu.uploadPassability(world.passability);
       const senseP = {

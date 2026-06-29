@@ -15,6 +15,7 @@
 
 export const STEER_WGSL = /* wgsl */ `
 const GENE_COUNT = 17u;
+const G_SIZE = 0u; // body size → max store per nutrient (deficit-seeking)
 const G_KC = 6u;   // KIN_COHESION
 const G_SE = 7u;   // SEPARATION
 const G_RA = 8u;   // RESOURCE_ATTRACT
@@ -42,6 +43,7 @@ struct Params {
   cogMask  : u32,   // enabled-term bitmask
   dangerGain    : f32, // danger |gradient| → pull slope (magnitude-sensitive)
   dangerMaxPull : f32, // danger pull ceiling
+  maxEnergyPerSize : f32, // store cap per nutrient = SIZE·this (deficit-seeking)
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -52,6 +54,9 @@ struct Params {
 @group(0) @binding(5) var<storage, read>       res      : array<f32>;
 @group(0) @binding(6) var<storage, read_write> steerOut : array<f32>;
 @group(0) @binding(7) var<storage, read>       danger   : array<f32>;
+@group(0) @binding(8) var<storage, read>       resB     : array<f32>;  // nutrient-B field
+@group(0) @binding(9) var<storage, read>       energy   : array<f32>;  // nutrient-A store
+@group(0) @binding(10) var<storage, read>      energyB  : array<f32>;  // nutrient-B store
 
 fn hashU32(x: u32) -> u32 {
   var v = x;
@@ -99,8 +104,9 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (l > 1e-4) { avX = avX / l; avY = avY / l; } else { avX = 0.0; avY = 0.0; }
   }
 
-  // --- resource gradient: toward the richer of the 4-neighbor cells ---
-  // (uniform branch — same for all 20k agents, no divergence; FOOD off skips the reads)
+  // --- resource gradient: DEFICIT-SEEKING over both nutrients (mirrors CPU steer.ts). Each
+  // nutrient's 4-neighbor gradient is weighted by how short this agent is on it, so a
+  // B-starved agent is pulled toward nutrient B. (FOOD off skips the reads.)
   let onFood = (P.cogMask & COG_FOOD) != 0u;
   var rgx = 0.0;
   var rgy = 0.0;
@@ -114,8 +120,11 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     let yu = select(cy, cy - 1, cy > 0);
     let yd = select(cy, cy + 1, cy < gh - 1);
     let rowc = cy * gw;
-    rgx = res[u32(rowc + xr)] - res[u32(rowc + xl)];
-    rgy = res[u32(yd * gw + cx)] - res[u32(yu * gw + cx)];
+    let maxStore = genes[i * GENE_COUNT + G_SIZE] * P.maxEnergyPerSize;
+    let dA = clamp(1.0 - energy[i] / maxStore, 0.0, 1.0);
+    let dB = clamp(1.0 - energyB[i] / maxStore, 0.0, 1.0);
+    rgx = (res[u32(rowc + xr)] - res[u32(rowc + xl)]) * dA + (resB[u32(rowc + xr)] - resB[u32(rowc + xl)]) * dB;
+    rgy = (res[u32(yd * gw + cx)] - res[u32(yu * gw + cx)]) * dA + (resB[u32(yd * gw + cx)] - resB[u32(yu * gw + cx)]) * dB;
     let l = sqrt(rgx * rgx + rgy * rgy);
     if (l > 1e-4) { rgx = rgx / l; rgy = rgy / l; } else { rgx = 0.0; rgy = 0.0; }
   }

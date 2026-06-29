@@ -240,6 +240,9 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   const snapY = a.posY.slice(0, count);
   const snapGenes = a.genes.slice(0, count * GENE_COUNT);
   const snapRes = world.resources.slice();
+  const snapResB = world.resourceB.slice();
+  const snapEnergy = a.energy.slice(0, count);
+  const snapEnergyB = a.energyB.slice(0, count);
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
 
   const budget = world.intensity.neighborBudget;
@@ -269,7 +272,7 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   const snapDanger = world.danger.slice();
   gpu.buildHash(snapX, snapY, count);
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
-  gpu.steerBuild(snapRes, snapDanger, count, world.tick);
+  gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, count, world.tick);
   const gs = await gpu.readSteer();
 
   let compared = 0;
@@ -399,22 +402,27 @@ export async function verifyMetabolism(world: World, gpu: GpuContext): Promise<M
   const snapVY = a.velY.slice(0, count);
   const snapGenes = a.genes.slice(0, count * GENE_COUNT);
   const snapEnergy = a.energy.slice(0, count);
+  const snapEnergyB = a.energyB.slice(0, count);
   const snapAge = a.age.slice(0, count);
   const snapRes = world.resources.slice();
+  const snapResB = world.resourceB.slice();
   const hz = world.hazard;
   const hazP = { active: hz.life > 0, x: hz.x, y: hz.y, r2: hz.r * hz.r };
 
-  // CPU reference: metabolism mutates energy/age in place and depletes resources.
+  // CPU reference: metabolism mutates energy/energyB/age in place and depletes both fields.
   metabolism(world);
   const cEnergy = a.energy.slice(0, count);
+  const cEnergyB = a.energyB.slice(0, count);
   const cAge = a.age.slice(0, count);
   a.energy.set(snapEnergy);
+  a.energyB.set(snapEnergyB);
   a.age.set(snapAge);
   world.resources.set(snapRes);
+  world.resourceB.set(snapResB);
 
   // GPU on the frozen snapshot.
-  gpu.metabolismBuild(snapX, snapY, snapVX, snapVY, snapGenes, snapEnergy, snapAge, snapRes, count, hazP);
-  const { energy: gE, age: gA } = await gpu.readMetabolism();
+  gpu.metabolismBuild(snapX, snapY, snapVX, snapVY, snapGenes, snapEnergy, snapEnergyB, snapAge, snapRes, snapResB, count, hazP);
+  const { energy: gE, energyB: gEB, age: gA } = await gpu.readMetabolism();
 
   // Per-resource-cell occupancy (matches grid.ts resCellIndex).
   const occ = new Int32Array(RESOURCE_GRID_W * RESOURCE_GRID_H);
@@ -439,7 +447,8 @@ export async function verifyMetabolism(world: World, gpu: GpuContext): Promise<M
       ageMismatches++;
       if (notes.length < 8) notes.push(`agent ${i} age cpu=${cAge[i]!.toFixed(4)} gpu=${gA[i]!.toFixed(4)}`);
     }
-    const dE = Math.abs(gE[i]! - cEnergy[i]!);
+    // Both nutrient stores; an uncontended (single-occupant) cell must match exactly for both.
+    const dE = Math.max(Math.abs(gE[i]! - cEnergy[i]!), Math.abs(gEB[i]! - cEnergyB[i]!));
     const contended = occ[resCell(snapX[i]!, snapY[i]!)]! > 1;
     if (contended) {
       if (dE > 5e-3) energyMismatchesContended++;
@@ -447,7 +456,7 @@ export async function verifyMetabolism(world: World, gpu: GpuContext): Promise<M
       if (dE > worstUncontendedEnergy) worstUncontendedEnergy = dE;
       if (dE > 5e-3) {
         energyMismatchesUncontended++;
-        if (notes.length < 8) notes.push(`agent ${i} energy cpu=${cEnergy[i]!.toFixed(4)} gpu=${gE[i]!.toFixed(4)} (single-occupant cell)`);
+        if (notes.length < 8) notes.push(`agent ${i} E cpu=(${cEnergy[i]!.toFixed(3)},${cEnergyB[i]!.toFixed(3)}) gpu=(${gE[i]!.toFixed(3)},${gEB[i]!.toFixed(3)}) (single-occupant)`);
       }
     }
   }
@@ -497,9 +506,11 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   const snapVX = a.velX.slice(0, count);
   const snapVY = a.velY.slice(0, count);
   const snapEnergy = a.energy.slice(0, count);
+  const snapEnergyB = a.energyB.slice(0, count);
   const snapAge = a.age.slice(0, count);
   const snapGenes = a.genes.slice(0, count * GENE_COUNT);
   const snapRes = world.resources.slice();
+  const snapResB = world.resourceB.slice();
   const snapDanger = world.danger.slice();
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
 
@@ -531,6 +542,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   const cVX = a.velX.slice(0, count);
   const cVY = a.velY.slice(0, count);
   const cE = a.energy.slice(0, count);
+  const cEB = a.energyB.slice(0, count);
   const cA = a.age.slice(0, count);
   // restore live world
   for (let i = 0; i < count; i++) a.genes[i * GENE_COUNT + W] = savedWander[i]!;
@@ -540,12 +552,15 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   a.velX.set(snapVX);
   a.velY.set(snapVY);
   a.energy.set(snapEnergy);
+  a.energyB.set(snapEnergyB);
   a.age.set(snapAge);
   world.resources.set(snapRes);
+  world.resourceB.set(snapResB);
 
   // GPU resident chain on the same snapshot.
-  gpu.uploadState(snapX, snapY, snapVX, snapVY, snapEnergy, snapAge, snapGenes, count);
+  gpu.uploadState(snapX, snapY, snapVX, snapVY, snapEnergy, snapEnergyB, snapAge, snapGenes, count);
   gpu.uploadResources(snapRes);
+  gpu.uploadResourcesB(snapResB);
   gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
   gpu.uploadPassability(world.passability); // integrate reads it; mirror the live upload
   gpu.runTierA(count, true, world.tick, senseP, hazP);
@@ -590,12 +605,12 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
       posVelMismatches++;
       if (notes.length < 8) notes.push(`agent ${i} posVel d=${dPV.toExponential(2)}`);
     }
-    const dE = Math.abs(g.energy[i]! - cE[i]!);
+    const dE = Math.max(Math.abs(g.energy[i]! - cE[i]!), Math.abs(g.energyB[i]! - cEB[i]!));
     if (dE > 5e-3) {
       if (occ[resCell(cX[i]!, cY[i]!)]! > 1) energyContended++;
       else {
         energyMismatches++;
-        if (notes.length < 8) notes.push(`agent ${i} energy cpu=${cE[i]!.toFixed(3)} gpu=${g.energy[i]!.toFixed(3)} (single-cell)`);
+        if (notes.length < 8) notes.push(`agent ${i} E cpu=(${cE[i]!.toFixed(3)},${cEB[i]!.toFixed(3)}) gpu=(${g.energy[i]!.toFixed(3)},${g.energyB[i]!.toFixed(3)}) (single-cell)`);
       }
     }
   }

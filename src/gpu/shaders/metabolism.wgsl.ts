@@ -53,9 +53,11 @@ struct Params {
 @group(0) @binding(3) var<storage, read>       velX   : array<f32>;
 @group(0) @binding(4) var<storage, read>       velY   : array<f32>;
 @group(0) @binding(5) var<storage, read>       genes  : array<f32>;
-@group(0) @binding(6) var<storage, read_write> energy : array<f32>;
-@group(0) @binding(7) var<storage, read_write> age    : array<f32>;
-@group(0) @binding(8) var<storage, read_write> res    : array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> energy  : array<f32>;
+@group(0) @binding(7) var<storage, read_write> age     : array<f32>;
+@group(0) @binding(8) var<storage, read_write> res     : array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> energyB : array<f32>;            // nutrient-B store
+@group(0) @binding(10) var<storage, read_write> resB   : array<atomic<u32>>;    // nutrient-B field
 
 fn resCell(x: f32, y: f32) -> u32 {
   let cx = clamp(i32(floor(x / P.resCellW)), 0, i32(P.resGridW) - 1);
@@ -99,28 +101,54 @@ fn metabolismMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  var e = energy[i] - drain;
+  // Dual-nutrient diet: split the drain PROPORTIONALLY across the two stores (you burn what
+  // you have; survival rides on the sum — death.ts on the CPU). Mirrors CPU metabolism.ts.
+  var eA = energy[i];
+  var eB = energyB[i];
+  let tot = eA + eB;
+  if (tot > 1e-6) {
+    eA = eA - drain * (eA / tot);
+    eB = eB - drain * (eB / tot);
+  } else {
+    eA = eA - drain;
+  }
 
-  // --- intake (atomic CAS-clamp): EFFICIENCY = more energy per unit resource ---
+  // --- intake (atomic CAS-clamp) of EACH nutrient into its store ---
   let maxE = size * P.maxEnergyPerSize;
-  let room = maxE - e;
-  if (room > 0.0) {
-    let effGain = 1.0 + P.effIntakeBonus * efficiency;
-    let baseTake = select(P.intakeRate * pow(size, P.intakeSizeExp), P.intakeRate * size, P.intakeSizeExp == 1.0);
-    let desiredTake = min(baseTake, room / effGain); // resource, not energy
+  let effGain = 1.0 + P.effIntakeBonus * efficiency;
+  let baseTake = select(P.intakeRate * pow(size, P.intakeSizeExp), P.intakeRate * size, P.intakeSizeExp == 1.0);
+  let c = resCell(posX[i], posY[i]);
+
+  let roomA = maxE - eA;
+  if (roomA > 0.0) {
+    let desiredTake = min(baseTake, roomA / effGain);
     if (desiredTake > 0.0) {
-      let c = resCell(posX[i], posY[i]);
       loop {
         let oldBits = atomicLoad(&res[c]);
         let oldVal = bitcast<f32>(oldBits);
         if (oldVal <= 0.0) { break; }
         let take = min(desiredTake, oldVal);
         let r = atomicCompareExchangeWeak(&res[c], oldBits, bitcast<u32>(oldVal - take));
-        if (r.exchanged) { e = e + take * effGain; break; }
+        if (r.exchanged) { eA = eA + take * effGain; break; }
+      }
+    }
+  }
+  let roomB = maxE - eB;
+  if (roomB > 0.0) {
+    let desiredTake = min(baseTake, roomB / effGain);
+    if (desiredTake > 0.0) {
+      loop {
+        let oldBits = atomicLoad(&resB[c]);
+        let oldVal = bitcast<f32>(oldBits);
+        if (oldVal <= 0.0) { break; }
+        let take = min(desiredTake, oldVal);
+        let r = atomicCompareExchangeWeak(&resB[c], oldBits, bitcast<u32>(oldVal - take));
+        if (r.exchanged) { eB = eB + take * effGain; break; }
       }
     }
   }
 
-  energy[i] = e;
+  energy[i] = eA;
+  energyB[i] = eB;
 }
 `;

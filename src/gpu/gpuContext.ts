@@ -49,6 +49,7 @@ export interface GpuState {
   velX: Float32Array;
   velY: Float32Array;
   energy: Float32Array;
+  energyB: Float32Array;
   age: Float32Array;
 }
 
@@ -108,6 +109,7 @@ export class GpuContext {
 
   // --- steer pass (reads senseOut + genes + resource + danger fields; writes steer) ---
   private readonly resourcesBuf: GPUBuffer;
+  private readonly resourcesBBuf: GPUBuffer; // nutrient-B field (metab depletes, steer reads)
   private readonly dangerBuf: GPUBuffer;
   private readonly steerParamsBuf: GPUBuffer;
   private readonly steerOutBuf: GPUBuffer;
@@ -144,11 +146,13 @@ export class GpuContext {
 
   // --- energy / age buffers (persistent state; metabolism reads + writes them) ---
   private readonly energyBuf: GPUBuffer;
+  private readonly energyBBuf: GPUBuffer; // nutrient-B store
   private readonly ageBuf: GPUBuffer;
 
   // --- metabolism pass (drain + age per-agent, atomic CAS-clamp resource intake) ---
   private readonly metabParamsBuf: GPUBuffer;
   private readonly energyRead: GPUBuffer;
+  private readonly energyBRead: GPUBuffer;
   private readonly ageRead: GPUBuffer;
   private readonly metabBindGroup: GPUBindGroup;
   private readonly pipeMetab: GPUComputePipeline;
@@ -256,6 +260,11 @@ export class GpuContext {
 
     // --- steer pass: consumes senseOut + genes (resident) + resource + danger fields ---
     this.resourcesBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.resourcesBBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    // Energy stores: allocated HERE (before the steer bind group, which reads them for
+    // deficit-seeking); metabolism below reads + writes them.
+    this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    this.energyBBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
     this.steerParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
@@ -273,6 +282,9 @@ export class GpuContext {
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeSteer = dev.createComputePipeline({
@@ -290,6 +302,9 @@ export class GpuContext {
         { binding: 5, resource: { buffer: this.resourcesBuf } },
         { binding: 6, resource: { buffer: this.steerOutBuf } },
         { binding: 7, resource: { buffer: this.dangerBuf } },
+        { binding: 8, resource: { buffer: this.resourcesBBuf } },
+        { binding: 9, resource: { buffer: this.energyBuf } },
+        { binding: 10, resource: { buffer: this.energyBBuf } },
       ],
     });
 
@@ -305,7 +320,8 @@ export class GpuContext {
     this.velXRead = readBuf(capacity * f32);
     this.velYRead = readBuf(capacity * f32);
     this.resourcesRead = readBuf(RES_CELLS * f32);
-    this.combinedRead = readBuf((6 * capacity + RES_CELLS) * f32);
+    // [posX|posY|velX|velY|energy|energyB|age] (7×cap) + [resources|resourceB] (2×grid).
+    this.combinedRead = readBuf((7 * capacity + 2 * RES_CELLS) * f32);
 
     const intModule = dev.createShaderModule({ code: INTEGRATE_WGSL });
     const intLayout = dev.createBindGroupLayout({
@@ -338,11 +354,12 @@ export class GpuContext {
       ],
     });
 
-    // --- metabolism pass: per-agent drain/age + atomic resource intake (8 storage) ---
-    this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
+    // --- metabolism pass: per-agent drain/age + atomic dual-nutrient intake (10 storage) ---
+    // energyBuf / energyBBuf were allocated in the steer section above (steer reads them).
     this.ageBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.metabParamsBuf = buf(96, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     this.energyRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+    this.energyBRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
     this.ageRead = buf(capacity * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
 
     const metabModule = dev.createShaderModule({ code: METABOLISM_WGSL });
@@ -357,6 +374,8 @@ export class GpuContext {
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
         { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       ],
     });
     this.pipeMetab = dev.createComputePipeline({
@@ -375,6 +394,8 @@ export class GpuContext {
         { binding: 6, resource: { buffer: this.energyBuf } },
         { binding: 7, resource: { buffer: this.ageBuf } },
         { binding: 8, resource: { buffer: this.resourcesBuf } },
+        { binding: 9, resource: { buffer: this.energyBBuf } },
+        { binding: 10, resource: { buffer: this.resourcesBBuf } },
       ],
     });
   }
@@ -424,6 +445,7 @@ export class GpuContext {
     this.steerParamsU32[7] = COGNITION.mask >>> 0;
     this.steerParamsF32[8] = STIGMERGY.dangerGain;
     this.steerParamsF32[9] = STIGMERGY.dangerMaxPull;
+    this.steerParamsF32[10] = SIM.maxEnergyPerSize; // deficit-seeking: store cap per nutrient
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 
@@ -567,10 +589,23 @@ export class GpuContext {
    * dispatches; output read with readSteer(). `seed` drives the per-agent wander RNG
    * (the GPU's own determinism domain — pass the sim tick).
    */
-  steerBuild(resources: Float32Array, danger: Float32Array, count: number, seed: number): void {
+  steerBuild(
+    resources: Float32Array,
+    resB: Float32Array,
+    danger: Float32Array,
+    energy: Float32Array,
+    energyB: Float32Array,
+    count: number,
+    seed: number,
+  ): void {
     this.writeSteerParams(count, seed);
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    this.queue.writeBuffer(this.resourcesBBuf, 0, resB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
     this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    if (count > 0) {
+      this.queue.writeBuffer(this.energyBuf, 0, energy as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.energyBBuf, 0, energyB as Float32Array<ArrayBuffer>, 0, count);
+    }
 
     const enc = this.device.createCommandEncoder();
     const pass = enc.beginComputePass();
@@ -669,8 +704,10 @@ export class GpuContext {
     velY: Float32Array,
     genes: Float32Array,
     energy: Float32Array,
+    energyB: Float32Array,
     age: Float32Array,
     resources: Float32Array,
+    resB: Float32Array,
     count: number,
     hz: HazardParams,
   ): void {
@@ -683,10 +720,12 @@ export class GpuContext {
       this.queue.writeBuffer(this.velYBuf, 0, velY as Float32Array<ArrayBuffer>, 0, count);
       this.queue.writeBuffer(this.genesBuf, 0, genes as Float32Array<ArrayBuffer>, 0, count * GENE_COUNT);
       this.queue.writeBuffer(this.energyBuf, 0, energy as Float32Array<ArrayBuffer>, 0, count);
+      this.queue.writeBuffer(this.energyBBuf, 0, energyB as Float32Array<ArrayBuffer>, 0, count);
       this.queue.writeBuffer(this.ageBuf, 0, age as Float32Array<ArrayBuffer>, 0, count);
     }
-    // The whole resource field (atomic f32 bits), re-uploaded since intake depletes it.
+    // Both resource fields (atomic f32 bits), re-uploaded since intake depletes them.
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    this.queue.writeBuffer(this.resourcesBBuf, 0, resB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
 
     const enc = this.device.createCommandEncoder();
     const pass = enc.beginComputePass();
@@ -697,20 +736,24 @@ export class GpuContext {
     this.queue.submit([enc.finish()]);
   }
 
-  /** Read the metabolism outputs back: fresh energy + age arrays (length capacity). */
-  async readMetabolism(): Promise<{ energy: Float32Array; age: Float32Array }> {
+  /** Read the metabolism outputs back: fresh energy + energyB + age arrays (length capacity). */
+  async readMetabolism(): Promise<{ energy: Float32Array; energyB: Float32Array; age: Float32Array }> {
     const f32 = Float32Array.BYTES_PER_ELEMENT;
     const enc = this.device.createCommandEncoder();
     enc.copyBufferToBuffer(this.energyBuf, 0, this.energyRead, 0, this.capacity * f32);
+    enc.copyBufferToBuffer(this.energyBBuf, 0, this.energyBRead, 0, this.capacity * f32);
     enc.copyBufferToBuffer(this.ageBuf, 0, this.ageRead, 0, this.capacity * f32);
     this.queue.submit([enc.finish()]);
     await this.energyRead.mapAsync(GPUMapMode.READ);
+    await this.energyBRead.mapAsync(GPUMapMode.READ);
     await this.ageRead.mapAsync(GPUMapMode.READ);
     const energy = new Float32Array(this.energyRead.getMappedRange()).slice();
+    const energyB = new Float32Array(this.energyBRead.getMappedRange()).slice();
     const age = new Float32Array(this.ageRead.getMappedRange()).slice();
     this.energyRead.unmap();
+    this.energyBRead.unmap();
     this.ageRead.unmap();
-    return { energy, age };
+    return { energy, energyB, age };
   }
 
   // ============================ resident Tier A chain ============================
@@ -724,6 +767,7 @@ export class GpuContext {
     velX: Float32Array,
     velY: Float32Array,
     energy: Float32Array,
+    energyB: Float32Array,
     age: Float32Array,
     genes: Float32Array,
     count: number,
@@ -735,13 +779,19 @@ export class GpuContext {
     this.queue.writeBuffer(this.velXBuf, 0, c(velX), 0, count);
     this.queue.writeBuffer(this.velYBuf, 0, c(velY), 0, count);
     this.queue.writeBuffer(this.energyBuf, 0, c(energy), 0, count);
+    this.queue.writeBuffer(this.energyBBuf, 0, c(energyB), 0, count);
     this.queue.writeBuffer(this.ageBuf, 0, c(age), 0, count);
     this.queue.writeBuffer(this.genesBuf, 0, c(genes), 0, count * GENE_COUNT);
   }
 
-  /** Upload the resource field (f32 bits; metabolism's atomic intake depletes it). */
+  /** Upload nutrient-A field (f32 bits; metabolism's atomic intake depletes it). */
   uploadResources(resources: Float32Array): void {
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload nutrient-B field (depleted by metabolism's atomic intake; steer reads it). */
+  uploadResourcesB(resourceB: Float32Array): void {
+    this.queue.writeBuffer(this.resourcesBBuf, 0, resourceB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
   }
 
   /** Upload the danger field (read-only; steer descends its gradient). */
@@ -799,9 +849,10 @@ export class GpuContext {
     enc.copyBufferToBuffer(this.velXBuf, 0, this.velXRead, 0, n);
     enc.copyBufferToBuffer(this.velYBuf, 0, this.velYRead, 0, n);
     enc.copyBufferToBuffer(this.energyBuf, 0, this.energyRead, 0, n);
+    enc.copyBufferToBuffer(this.energyBBuf, 0, this.energyBRead, 0, n);
     enc.copyBufferToBuffer(this.ageBuf, 0, this.ageRead, 0, n);
     this.queue.submit([enc.finish()]);
-    const reads = [this.posXRead, this.posYRead, this.velXRead, this.velYRead, this.energyRead, this.ageRead];
+    const reads = [this.posXRead, this.posYRead, this.velXRead, this.velYRead, this.energyRead, this.energyBRead, this.ageRead];
     for (const r of reads) await r.mapAsync(GPUMapMode.READ);
     const out: GpuState = {
       posX: new Float32Array(this.posXRead.getMappedRange()).slice(),
@@ -809,6 +860,7 @@ export class GpuContext {
       velX: new Float32Array(this.velXRead.getMappedRange()).slice(),
       velY: new Float32Array(this.velYRead.getMappedRange()).slice(),
       energy: new Float32Array(this.energyRead.getMappedRange()).slice(),
+      energyB: new Float32Array(this.energyBRead.getMappedRange()).slice(),
       age: new Float32Array(this.ageRead.getMappedRange()).slice(),
     };
     for (const r of reads) r.unmap();
@@ -837,12 +889,14 @@ export class GpuContext {
     velX: Float32Array,
     velY: Float32Array,
     energy: Float32Array,
+    energyB: Float32Array,
     age: Float32Array,
     resources: Float32Array,
+    resourceB: Float32Array,
     count: number,
   ): Promise<void> {
     await this.submitReadback(count);
-    this.finishReadback(posX, posY, velX, velY, energy, age, resources, count);
+    this.finishReadback(posX, posY, velX, velY, energy, energyB, age, resources, resourceB, count);
   }
 
   // --- pipelined readback (submit now, await + apply LATER) ------------------------
@@ -861,9 +915,11 @@ export class GpuContext {
       enc.copyBufferToBuffer(this.velXBuf, 0, this.combinedRead, 2 * cap * f32, n);
       enc.copyBufferToBuffer(this.velYBuf, 0, this.combinedRead, 3 * cap * f32, n);
       enc.copyBufferToBuffer(this.energyBuf, 0, this.combinedRead, 4 * cap * f32, n);
-      enc.copyBufferToBuffer(this.ageBuf, 0, this.combinedRead, 5 * cap * f32, n);
+      enc.copyBufferToBuffer(this.energyBBuf, 0, this.combinedRead, 5 * cap * f32, n);
+      enc.copyBufferToBuffer(this.ageBuf, 0, this.combinedRead, 6 * cap * f32, n);
     }
-    enc.copyBufferToBuffer(this.resourcesBuf, 0, this.combinedRead, 6 * cap * f32, RES_CELLS * f32);
+    enc.copyBufferToBuffer(this.resourcesBuf, 0, this.combinedRead, 7 * cap * f32, RES_CELLS * f32);
+    enc.copyBufferToBuffer(this.resourcesBBuf, 0, this.combinedRead, (7 * cap + RES_CELLS) * f32, RES_CELLS * f32);
     this.queue.submit([enc.finish()]);
     return this.combinedRead.mapAsync(GPUMapMode.READ);
   }
@@ -875,8 +931,10 @@ export class GpuContext {
     velX: Float32Array,
     velY: Float32Array,
     energy: Float32Array,
+    energyB: Float32Array,
     age: Float32Array,
     resources: Float32Array,
+    resourceB: Float32Array,
     count: number,
   ): void {
     const cap = this.capacity;
@@ -887,9 +945,11 @@ export class GpuContext {
       velX.set(r.subarray(2 * cap, 2 * cap + count));
       velY.set(r.subarray(3 * cap, 3 * cap + count));
       energy.set(r.subarray(4 * cap, 4 * cap + count));
-      age.set(r.subarray(5 * cap, 5 * cap + count));
+      energyB.set(r.subarray(5 * cap, 5 * cap + count));
+      age.set(r.subarray(6 * cap, 6 * cap + count));
     }
-    resources.set(r.subarray(6 * cap, 6 * cap + RES_CELLS));
+    resources.set(r.subarray(7 * cap, 7 * cap + RES_CELLS));
+    resourceB.set(r.subarray(7 * cap + RES_CELLS, 7 * cap + 2 * RES_CELLS));
     this.combinedRead.unmap();
   }
 }

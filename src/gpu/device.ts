@@ -21,7 +21,12 @@ export async function acquireGpuDevice(): Promise<GpuDevice | null> {
   try {
     const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) return null;
-    const device = await adapter.requestDevice();
+    // Dual-nutrient metabolism + deficit-seeking steer each bind 10 storage buffers (the
+    // default limit is 8). Request 10; if the adapter can't, requestDevice rejects → caught
+    // below → null → CPU fallback (the golden path still works everywhere).
+    const device = await adapter.requestDevice({
+      requiredLimits: { maxStorageBuffersPerShaderStage: 10 },
+    });
     if (!device) return null;
     return { device, queue: device.queue };
   } catch {

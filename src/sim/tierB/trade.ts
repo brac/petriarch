@@ -26,6 +26,8 @@ export function trade(world: World, useCache: boolean): void {
   const a = world.agents;
   const { posX, posY, energy, energyB, genes, count, neighborList, neighborCount } = a;
   const hash = world.hash;
+  const pulses = world.tradePulses;
+  const maxPulses = pulses.x.length;
 
   const range2 = TRADE.range * TRADE.range;
   const sigT = SIM.sigThreshold;
@@ -113,6 +115,12 @@ export function trade(world: World, useCache: boolean): void {
       energyB[bSup] = energyB[bSup]! - t; // nutrient B: bSup → aSup
       energyB[aSup] = energyB[aSup]! + t;
       a.tradeTotal++;
+      // Emit a gold pulse at the exchange (the renderer's trade mesh).
+      if (pulses.count < maxPulses) {
+        pulses.x[pulses.count] = (xi + posX[j]!) * 0.5;
+        pulses.y[pulses.count] = (yi + posY[j]!) * 0.5;
+        pulses.count++;
+      }
       break; // i initiates at most one trade per tick
     }
   }

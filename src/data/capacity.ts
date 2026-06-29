@@ -34,6 +34,10 @@ export const HASH_CELL_SIZE = 64;
 /** Max simultaneous conflict sparks the renderer can show (pooled). */
 export const MAX_SPARKS = 256;
 
+/** Max simultaneous gold trade-pulses the renderer can show (pooled). Larger than sparks —
+ *  barter is more frequent than fights. */
+export const MAX_TRADE_PULSES = 512;
+
 /** Max god-perturbation commands buffered between sim ticks. A fast drag-paint enqueues
  *  one per pointer event, so this only needs to cover a single frame's worth of input. */
 export const GOD_QUEUE_CAP = 512;

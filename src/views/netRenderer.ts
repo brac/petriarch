@@ -19,6 +19,7 @@ import {
   WORLD_H,
   MAX_AGENTS,
   MAX_SPARKS,
+  MAX_TRADE_PULSES,
   RESOURCE_GRID_W,
   RESOURCE_GRID_H,
   RES_CELL_W,
@@ -42,6 +43,8 @@ const CLAIM_EPS = 1e-3; // below this magnitude a cell is unclaimed (alpha 0)
 const DANGER_TINT = 0xff3b30; // death-zone red
 const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
 const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
+const TRADE_PULSE_TINT = 0xffd633; // barter flash — bright gold (commerce), vs conflict white
+const TRADE_PULSE_DECAY = 0.08; // gentler fade than a spark (~12-frame glow)
 // Kin-edge cost guards.
 const EDGE_TINT = 0x00ffcc;
 const EDGE_ALPHA = 0.16;
@@ -84,6 +87,11 @@ export class NetRenderer {
   private sparkParticles: Particle[] = [];
   private sparkLife = new Float32Array(MAX_SPARKS);
   private sparkCursor = 0;
+
+  private tradePulseContainer!: ParticleContainer;
+  private tradePulseParticles: Particle[] = [];
+  private tradePulseLife = new Float32Array(MAX_TRADE_PULSES);
+  private tradePulseCursor = 0;
 
   // Reused scratch for edge neighbor queries (zero alloc per frame).
   private edgeNbr: number[] = [];
@@ -143,6 +151,13 @@ export class NetRenderer {
     this.sparkContainer = sparkPool.container;
     this.sparkParticles = sparkPool.particles;
 
+    // --- trade-pulse pool --- a small filled gold dot (a commerce glow), visually distinct
+    // from the conflict ring: a war frays at a seam, a market shimmers along it.
+    const tradeTex = this.app.renderer.generateTexture(new Graphics().circle(0, 0, 10).fill(0xffffff));
+    const tradePool = this.buildPool(tradeTex, MAX_TRADE_PULSES, { position: true, color: true });
+    this.tradePulseContainer = tradePool.container;
+    this.tradePulseParticles = tradePool.particles;
+
     // Layer order. Ocean (passability) is the base terrain just above the dark field;
     // claim/territory sits over it as a ground tint, under the resource glow and agents.
     this.world.addChild(
@@ -156,6 +171,7 @@ export class NetRenderer {
       this.nodeContainer,
       this.borderLayer,
       this.sparkContainer,
+      this.tradePulseContainer,
       border,
     );
     this.app.stage.addChild(this.world);
@@ -176,6 +192,7 @@ export class NetRenderer {
     this.drawEdges(world);
     this.drawBorders(world);
     this.drawSparks(world);
+    this.drawTradePulses(world);
     this.app.renderer.render(this.app.stage);
   }
 
@@ -453,6 +470,42 @@ export class NetRenderer {
         life[k] = nl;
         p.alpha = nl;
         const s = 0.3 + (1 - nl) * 2.7; // expand outward (shockwave) as it fades
+        p.scaleX = s;
+        p.scaleY = s;
+      }
+    }
+  }
+
+  // Gold barter-pulses: the same rolling-pool pattern as sparks, but a soft filled glow that
+  // grows gently as it fades (a transaction shimmer) — a market reads differently from a war.
+  private drawTradePulses(world: World): void {
+    const tp = world.tradePulses;
+    const parts = this.tradePulseParticles;
+    const life = this.tradePulseLife;
+    for (let s = 0; s < tp.count; s++) {
+      const slot = this.tradePulseCursor;
+      const p = parts[slot]!;
+      p.x = tp.x[s]!;
+      p.y = tp.y[s]!;
+      p.tint = TRADE_PULSE_TINT;
+      life[slot] = 1;
+      this.tradePulseCursor = (this.tradePulseCursor + 1) % parts.length;
+    }
+    tp.count = 0; // consumed
+    for (let k = 0; k < parts.length; k++) {
+      const l = life[k]!;
+      if (l <= 0) continue;
+      const nl = l - TRADE_PULSE_DECAY;
+      const p = parts[k]!;
+      if (nl <= 0) {
+        life[k] = 0;
+        p.x = OFFSCREEN;
+        p.y = OFFSCREEN;
+        p.alpha = 0;
+      } else {
+        life[k] = nl;
+        p.alpha = nl;
+        const s = 0.7 + (1 - nl) * 1.1; // gentle grow as it fades
         p.scaleX = s;
         p.scaleY = s;
       }

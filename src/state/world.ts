@@ -16,6 +16,7 @@ import {
   RESOURCE_GRID_W,
   RESOURCE_GRID_H,
   MAX_SPARKS,
+  MAX_TRADE_PULSES,
   GOD_QUEUE_CAP,
 } from "../data/capacity";
 
@@ -91,6 +92,8 @@ export interface World {
   readonly passability: Float32Array;
   readonly hazard: Hazard;
   readonly sparks: SparkPool;
+  /** Pooled gold barter-pulse events (trade.ts), same shape as sparks; reset each frame. */
+  readonly tradePulses: SparkPool;
   /** Buffered god commands, drained once per tick before the GPU upload (see GodQueue). */
   readonly god: GodQueue;
   readonly intensity: IntensityState;
@@ -127,6 +130,7 @@ export function createWorld(seed: number): World {
     })(),
     hazard: { x: 0, y: 0, r: 0, life: 0 },
     sparks: { x: new Float32Array(MAX_SPARKS), y: new Float32Array(MAX_SPARKS), count: 0 },
+    tradePulses: { x: new Float32Array(MAX_TRADE_PULSES), y: new Float32Array(MAX_TRADE_PULSES), count: 0 },
     god: {
       type: new Int32Array(GOD_QUEUE_CAP),
       x: new Float32Array(GOD_QUEUE_CAP),

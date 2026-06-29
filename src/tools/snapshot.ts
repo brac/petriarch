@@ -155,8 +155,9 @@ export function restoreWorld(world: World, buf: ArrayBuffer): void {
   world.hazard.y = meta[M.HZ_Y]!;
   world.hazard.r = meta[M.HZ_R]!;
   world.hazard.life = meta[M.HZ_LIFE]!;
-  // Transient visual sparks aren't serialized; clear them so a load starts clean.
+  // Transient visual pools aren't serialized; clear them so a load starts clean.
   world.sparks.count = 0;
+  world.tradePulses.count = 0;
 
   // Rebuild the spatial hash so the next tick senses the restored positions.
   world.hash.build(a.posX, a.posY, a.count);

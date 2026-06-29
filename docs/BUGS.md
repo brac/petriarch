@@ -184,3 +184,16 @@ the spatial hash and ALL GPU buffers/uniforms auto-scale.
   logic exceeds its 4ms target at full intensity (still ~57fps; logic+render < frame budget).
   GPU mode + the intensity slider are the relief valves — exactly the "CPU Tier B is the wall"
   scaling CLAUDE.md predicts. Could re-validate the speciation tuning at the new size later.
+
+## Zoom
+How much of a lift is a zoom feature?
+
+## Per Agent data
+Could we select an indivial agent and get data on it or is that difficult?
+
+## Performance
+AT 12k agents on gpu we are running 24fps 70-140 heap, gpu 30 tierB 16 confl 12 repr 2.7 death .8 hast .6-1
+Seems slow. Could we improve preformance at all?
+
+## So much conflict
+There is always conflcit. That's fine to an extent but it seems almolst always present in most areas. I would think that after an inital period of conlfict one a trade starts to take over the conflict lessens more and more. Perahps we need some kind of multual a cooperation conficlt avoidance adjustment? 

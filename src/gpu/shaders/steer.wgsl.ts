@@ -14,7 +14,7 @@
 // senseOut interleave (stride 7): [kinX, kinY, kinCount, sepX, sepY, avoidX, avoidY].
 
 export const STEER_WGSL = /* wgsl */ `
-const GENE_COUNT = 17u;
+const GENE_COUNT = 18u;
 const G_SIZE = 0u; // body size → max store per nutrient (deficit-seeking)
 const G_KC = 6u;   // KIN_COHESION
 const G_SE = 7u;   // SEPARATION

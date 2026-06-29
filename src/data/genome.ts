@@ -27,10 +27,12 @@ export const GENE = {
   // --- morphology / body (Milestone 2 — bodies evolve, not just behavior) ---
   RESILIENCE: 15, // armor: less conflict/hazard damage, but heavier (more move drain)
   EFFICIENCY: 16, // digestion: more energy per resource, but slower
+  // --- social (authored Tier B layer) ---
+  TRADE: 17, // willingness to barter surplus nutrient with non-hostile complements (vs raid)
 } as const;
 
 /** Stride of the genome buffer. Pools and shaders read this constant. */
-export const GENE_COUNT = 17;
+export const GENE_COUNT = 18;
 
 // Per-gene [min, max], clamped after mutation:
 //   Math.max(GENE_RANGE[g][0], Math.min(GENE_RANGE[g][1], v))
@@ -61,4 +63,5 @@ export const GENE_RANGE: Record<number, [number, number]> = {
   [GENE.SIG_C]: [0.0, 1.0],
   [GENE.RESILIENCE]: [0.0, 1.0],
   [GENE.EFFICIENCY]: [0.0, 1.0],
+  [GENE.TRADE]: [0.0, 1.0],
 };

@@ -14,7 +14,7 @@
 // tolerance, counts match exactly.
 
 export const SENSE_WGSL = /* wgsl */ `
-const GENE_COUNT = 17u;
+const GENE_COUNT = 18u;
 const G_SIZE  = 0u;
 const G_AGGRO = 11u;
 const G_SIGA  = 12u;

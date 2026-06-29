@@ -7,7 +7,7 @@
 // pass order integrate → metabolism).
 
 export const INTEGRATE_WGSL = /* wgsl */ `
-const GENE_COUNT = 17u;
+const GENE_COUNT = 18u;
 const G_SIZE = 0u;
 const G_MR   = 1u;
 const G_EFF  = 16u; // EFFICIENCY

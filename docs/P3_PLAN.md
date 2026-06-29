@@ -124,8 +124,18 @@ I recommend **A**, with B's sharpener pre-specified and ready if the 3b study sh
   `perTradeVolume`, `diffuse`, `decay`, `suppress`. Stamp in `trade.ts`; add the `diffuseDecay` call
   in `stigmergy.ts`; read+suppress in `conflict.ts`. Snapshot bump + headless REPORT line
   (mean amity, suppressed-fight count). Typecheck + a smoke headless run.
-- **3b — the study (the honest gate).** Extend `src/tools/tradecheck.ts` (or a new `src/tools/
-  amitycheck.ts`) — trade+amity ON vs trade-ON-amity-OFF vs trade-OFF, tail-averaged, ≥3 seeds.
+- **3b — the study. ✅ DONE.** New harness `src/tools/amitycheck.ts` (amity-ON vs amity-OFF vs
+  trade-OFF + a decay sweep, with a **frontier-local danger** metric — danger in amity-marked cells,
+  the clean causal test the global fight-count masked). **KEY FINDING: amity bites on PERSISTENCE,
+  not magnitude.** The magnitude sweep (suppress→0.5, vol→5) did almost nothing (peak amity capped
+  ~4, <1% of fights suppressed) — at fast decay each deposit faded before the next sparse frontier
+  trade. SLOW decay (0.998) was the unlock: a recurring market accumulates a broad standing peace.
+  16k×4-seed confirm of the winning "strong" config (suppress 0.3, decay 0.998, vol 4): pacified
+  cells 13→245, global fights/k 5176→4357 (−16% vs trade-only), frontier danger 0.20→0.16, TRADE
+  selects up 0.45→0.49 (variance held), corrTA flips positive, breedReady highest (66.9%), predation
+  niche intact (predF 3.9%, corrSA ~0), no universal peace. **Baked into `src/data/amity.ts`.**
+  Effects are real but gentle by design — the dramatic flourishing is P4's job. *(original 3b scope:)*
+  Extend `src/tools/tradecheck.ts` (or a new `src/tools/amitycheck.ts`) — trade+amity ON vs trade-ON-amity-OFF vs trade-OFF, tail-averaged, ≥3 seeds.
   **Confirm-or-falsify metrics:**
   - `tradeMean` rises **and holds variance** under amity-ON vs the OFF control (TRADE *selects*, not
     drifts) — the headline.

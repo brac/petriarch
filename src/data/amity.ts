@@ -13,17 +13,27 @@
 // (rule 10). Stays CPU/Tier B — never uploaded to the GPU. See src/sim/tierB/{trade,
 // conflict,stigmergy}.ts.
 
+// 3b STUDY RESULT (src/tools/amitycheck.ts, 4 seeds × 16k, tail 12-16k) — these defaults are the
+// "strong" config that won the decay sweep. KEY FINDING: amity bites on PERSISTENCE, not magnitude.
+// Cranking perTradeVolume/suppress alone did almost nothing (peak amity capped ~4, <1% of fights
+// suppressed) — because at the old fast decay each deposit faded before the next sparse frontier
+// trade, so amity never accumulated. SLOW decay (0.998) lets a recurring border market build a
+// broad standing peace: pacified-cell count 13→245, global fights/k 5176→4357 (−16% vs trade-only,
+// −26% vs no-trade), frontier danger 0.20→0.16, TRADE selects up 0.45→0.49 (variance held), corrTA
+// flips positive (warlord-traders viable), breedReady highest (66.9%) — all while the predation
+// niche holds (predF 3.9%, corrSA ~0) and the world stays violent (4357 fights/k = no universal
+// peace). Effects are real but GENTLE by design: P3 builds the tension + recession; P4 (carriers
+// concentrating trade into routes) is where it flourishes.
 export const AMITY = {
-  /** amity stamped per unit of swapped energy (trade.ts). Mirror of dangerPerDamage. Sized so
-   *  a busy frontier market's peak amity (~3–5) × `suppress` clears the typical AGGRESSION, i.e.
-   *  pacifies the seam — while quiet cells stay contestable. 3a starting point; 3b tunes on the
-   *  ON/OFF study harness (the predation/repro/speciation-study convention). */
-  perTradeVolume: 2.5,
+  /** amity stamped per unit of swapped energy (trade.ts). Mirror of dangerPerDamage. */
+  perTradeVolume: 4,
   /** 4-neighbor blend fraction [0,1] — keep tight so a market pacifies its own seam, not the map. */
   diffuse: 0.12,
-  /** per-tick multiplier (<1 → fades). Faster than danger's so peace lapses when trade stops. */
-  decay: 0.985,
+  /** per-tick multiplier (<1 → fades). SLOW (well past danger's 0.99) so a recurring frontier market
+   *  ACCUMULATES a standing peace — the unlock (see 3b note above). "A fight is a flash, a trade
+   *  relationship is a foundation": amity must outlast danger. Still <1 → an abandoned market re-heats. */
+  decay: 0.998,
   /** conflict's effective aggressionThreshold is raised by suppress·amity[cell]; a high-amity cell
    *  needs a more-committed aggressor to start a fight (threshold crosses the gene max → no fights). */
-  suppress: 0.12,
+  suppress: 0.3,
 }; // mutable: the dev panel / study harness tunes these live

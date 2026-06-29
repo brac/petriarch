@@ -9,6 +9,7 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
+import { AMITY } from "../../data/amity";
 import { MORPH } from "../../data/morphology";
 import { STIGMERGY } from "../../data/stigmergy";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
@@ -26,6 +27,8 @@ export function conflict(world: World, useCache: boolean): void {
   const { posX, posY, energy, energyB, genes, fightCd, count, neighborList, neighborCount } = a;
   const res = world.resources;
   const danger = world.danger;
+  const amity = world.amity;
+  const amitySuppress = AMITY.suppress;
   const hash = world.hash;
   const rng = world.rng;
   const sparks = world.sparks;
@@ -44,8 +47,9 @@ export function conflict(world: World, useCache: boolean): void {
     if (fightCd[i]! > 0) continue;
     const xi = posX[i]!;
     const yi = posY[i]!;
+    const ci = resCellIndex(xi, yi);
     // Only fight over food worth contesting.
-    if (res[resCellIndex(xi, yi)]! < CONFLICT.contestResourceMin) continue;
+    if (res[ci]! < CONFLICT.contestResourceMin) continue;
 
     const bi = i * GENE_COUNT;
     const sa = genes[bi + GENE.SIG_A]!;
@@ -53,6 +57,10 @@ export function conflict(world: World, useCache: boolean): void {
     const sc = genes[bi + GENE.SIG_C]!;
     const aggi = genes[bi + GENE.AGGRESSION]!;
     const sizi = genes[bi + GENE.SIZE]!;
+    // Amity (accumulated trade) raises the bar for violence in this cell — a pacified
+    // border market suppresses fights (P3). High enough amity pushes aggTeff past the
+    // gene max → no fight starts here, so commerce visibly cools the seam.
+    const aggTeff = aggT + amitySuppress * amity[ci]!;
 
     // Neighbor source: sense's cache on think ticks, else a fresh query.
     let nbase: number;
@@ -83,7 +91,12 @@ export function conflict(world: World, useCache: boolean): void {
       if (Math.sqrt(dsa * dsa + dsb * dsb + dsc * dsc) < sigT) continue; // same group
 
       const aggj = genes[bj + GENE.AGGRESSION]!;
-      if (aggi < aggT && aggj < aggT) continue; // neither willing to fight
+      // Suppression: a pair willing under the base threshold but not the amity-raised one
+      // is a fight commerce averted — count it as a P3 diagnostic, then skip.
+      if (aggi < aggTeff && aggj < aggTeff) {
+        if (aggi >= aggT || aggj >= aggT) a.fightSuppressedTotal++;
+        continue; // neither willing enough to fight here
+      }
 
       // Resolve: stronger SIZE×aggression (with a seeded roll) wins.
       const sizj = genes[bj + GENE.SIZE]!;
@@ -133,6 +146,7 @@ export function conflict(world: World, useCache: boolean): void {
       }
       fightCd[i] = CONFLICT.cooldownTicks;
       fightCd[j] = CONFLICT.cooldownTicks;
+      a.fightTotal++;
 
       // Emit a spark at the seam.
       if (sparks.count < maxSparks) {

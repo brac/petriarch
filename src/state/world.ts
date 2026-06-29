@@ -85,6 +85,10 @@ export interface World {
   // Stigmergy `danger` field — deposited on death (death.ts), diffused/decayed by
   // tierB/stigmergy.ts, read by steer as a descend gradient (flee). Same grid.
   readonly danger: Float32Array;
+  // Stigmergy `amity` field — deposited on successful trade (trade.ts), diffused/decayed
+  // by tierB/stigmergy.ts, read by conflict to SUPPRESS fights in pacified cells (the
+  // TRADE-vs-AGGRESSION tension, docs/P3_PLAN.md). Same grid; CPU-only, never on the GPU.
+  readonly amity: Float32Array;
   // Passability (movement-cost) field — static admin/construction substrate, same grid.
   // Default 1 (normal ground); a painted ocean/wall is a huge sentinel cost. Read in the
   // integrate hot path (CPU + GPU) to block/throttle the step; written by the paint tool
@@ -121,6 +125,7 @@ export function createWorld(seed: number): World {
     claimSigB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     claimSigC: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     danger: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    amity: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     // Default ground cost is 1, not 0 — fill after allocation (zero would read as a
     // free/super-fast cell to the integrator's throttle).
     passability: ((): Float32Array => {

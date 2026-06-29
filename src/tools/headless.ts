@@ -48,6 +48,15 @@ function meanSd(w: World, gene: number): [number, number] {
   return [m, Math.sqrt(v / a.count)];
 }
 
+// Grid-field peak (amity) — the suppression-relevant quantity: conflict keys off a cell's
+// LOCAL amity, so the max at the hottest market matters, not the whole-grid mean (which a
+// few pacified cells barely move). A P3 diagnostic, not a hot path.
+function maxField(f: Float32Array): number {
+  let m = 0;
+  for (let k = 0; k < f.length; k++) if (f[k]! > m) m = f[k]!;
+  return m;
+}
+
 // Distinct living lineages (reused Set, cleared each sample — not a hot path).
 const lineageSet = new Set<number>();
 function lineageCount(w: World): number {
@@ -70,15 +79,22 @@ export function runHeadless(opts: HeadlessOptions): void {
   const a = w.agents;
   let prevBorn = a.bornTotal; // baseline so founders aren't counted as births
   let prevDied = a.diedTotal;
+  // P3 (amity/trade) diagnostics: per-1000-tick rates from cumulative counter deltas.
+  let prevTrade = a.tradeTotal;
+  let prevFight = a.fightTotal;
+  let prevSuppr = a.fightSuppressedTotal;
+  const per1k = 1000 / opts.interval;
 
   // Header.
-  const cols = ["tick", "pop", "lin", "+born", "-died", ...REPORT.map((r) => r.key)];
+  const P3COLS = ["amityMx", "trd/k", "fgt/k", "sup/k"];
+  const cols = ["tick", "pop", "lin", "+born", "-died", ...REPORT.map((r) => r.key), ...P3COLS];
   if (opts.csv) {
     console.log(cols.join(","));
   } else {
     const head =
       pad("tick", 7) + pad("pop", 7) + pad("lin", 5) + pad("born", 7) + pad("died", 7) +
-      "  " + REPORT.map((r) => pad(r.key, r.sd ? 12 : 7)).join(" ");
+      "  " + REPORT.map((r) => pad(r.key, r.sd ? 12 : 7)).join(" ") +
+      "  " + P3COLS.map((c) => pad(c, 7)).join(" ");
     console.log(head);
     console.log("-".repeat(head.length));
   }
@@ -90,9 +106,19 @@ export function runHeadless(opts: HeadlessOptions): void {
     prevDied = a.diedTotal;
     const lin = lineageCount(w);
 
+    // P3 rates (per 1000 ticks) + current mean amity.
+    const trdK = (a.tradeTotal - prevTrade) * per1k;
+    const fgtK = (a.fightTotal - prevFight) * per1k;
+    const supK = (a.fightSuppressedTotal - prevSuppr) * per1k;
+    prevTrade = a.tradeTotal;
+    prevFight = a.fightTotal;
+    prevSuppr = a.fightSuppressedTotal;
+    const amity = maxField(w.amity);
+
     if (opts.csv) {
       const vals = REPORT.map((r) => meanSd(w, r.gene)[0].toFixed(3));
-      console.log([w.tick, a.count, lin, born, died, ...vals].join(","));
+      const p3 = [amity.toFixed(3), trdK.toFixed(0), fgtK.toFixed(0), supK.toFixed(0)];
+      console.log([w.tick, a.count, lin, born, died, ...vals, ...p3].join(","));
     } else {
       let row =
         pad(String(w.tick), 7) + pad(String(a.count), 7) + pad(String(lin), 5) +
@@ -101,6 +127,8 @@ export function runHeadless(opts: HeadlessOptions): void {
         const [m, sd] = meanSd(w, r.gene);
         return pad(r.sd ? `${m.toFixed(2)}±${sd.toFixed(2)}` : m.toFixed(2), r.sd ? 12 : 7);
       }).join(" ");
+      row += "  " + [pad(amity.toFixed(2), 7), pad(trdK.toFixed(0), 7),
+        pad(fgtK.toFixed(0), 7), pad(supK.toFixed(0), 7)].join(" ");
       console.log(row);
     }
   };

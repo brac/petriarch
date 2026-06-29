@@ -15,7 +15,9 @@ import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
 import { TRADE } from "../../data/trade";
+import { AMITY } from "../../data/amity";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
+import { resCellIndex } from "../grid";
 
 // Reused scratch for the own-query (non-think-tick / GPU-mode) path — zero alloc per call.
 const ownNbr: number[] = [];
@@ -28,6 +30,8 @@ export function trade(world: World, useCache: boolean): void {
   const hash = world.hash;
   const pulses = world.tradePulses;
   const maxPulses = pulses.x.length;
+  const amity = world.amity;
+  const amityPerVol = AMITY.perTradeVolume;
 
   const range2 = TRADE.range * TRADE.range;
   const sigT = SIM.sigThreshold;
@@ -115,6 +119,10 @@ export function trade(world: World, useCache: boolean): void {
       energyB[bSup] = energyB[bSup]! - t; // nutrient B: bSup → aSup
       energyB[aSup] = energyB[aSup]! + t;
       a.tradeTotal++;
+      // Stamp amity at the exchange, scaled by swap volume — commerce pacifies its seam
+      // (conflict.ts reads this to suppress fights). Mirror of conflict's danger stamp.
+      const ac = resCellIndex(xi, yi);
+      amity[ac] = amity[ac]! + amityPerVol * t;
       // Emit a gold pulse at the exchange (the renderer's trade mesh).
       if (pulses.count < maxPulses) {
         pulses.x[pulses.count] = (xi + posX[j]!) * 0.5;

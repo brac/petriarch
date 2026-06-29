@@ -9,6 +9,7 @@
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { STIGMERGY } from "../../data/stigmergy";
+import { AMITY } from "../../data/amity";
 import { resCellIndex } from "../grid";
 import { RESOURCE_GRID_W, RESOURCE_GRID_H } from "../../data/capacity";
 
@@ -49,6 +50,9 @@ export function stigmergy(world: World): void {
 
   // --- danger diffuse + decay (deposit is event-driven, in death.ts) ---
   diffuseDecay(world.danger, STIGMERGY.dangerDiffuse, STIGMERGY.dangerDecay);
+
+  // --- amity diffuse + decay (deposit is event-driven, in trade.ts) ---
+  diffuseDecay(world.amity, AMITY.diffuse, AMITY.decay);
 }
 
 // next = ((1-k)*cur + k*avg4(neighbors)) * decay, edges clamped. Writes via scratch

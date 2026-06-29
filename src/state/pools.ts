@@ -22,6 +22,10 @@ export class Agents {
   diedTotal = 0;
   /** Cumulative barter swaps (trade.ts) — a trade-volume stat (not serialized). */
   tradeTotal = 0;
+  /** Cumulative resolved fights and amity-suppressed (averted) fights (conflict.ts) — P3
+   *  diagnostics for the 3b study; not serialized. */
+  fightTotal = 0;
+  fightSuppressedTotal = 0;
 
   // --- per-agent scalar fields (each its own typed array) ---
   readonly posX: Float32Array;

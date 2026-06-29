@@ -147,10 +147,16 @@ I recommend **A**, with B's sharpener pre-specified and ready if the 3b study sh
     suppress down / decay up); OR TRADE still flat vs OFF → escalate to fork **B**'s sharpener.
   Tune `AMITY.*` on the harness exactly like the predation/repro/speciation studies; bake the winning
   defaults into data with the study numbers in the comment (project convention).
-- **3c — the visual (optional, after 3b green).** Render amity as a cyan/gold "pax" haze over the
-  trading seam (mirror `drawDanger`/`drawClaim` in netRenderer; gate nothing on the intensity slider
-  per [[intensity-is-perf-not-visual]]). A flourishing border market should *look* like a lit, calm
-  district between two meshes — the cyber-net payoff. Defer if 3b runs long.
+- **3c — the visual. ✅ DONE.** Amity renders as a warm-**gold** pax-haze cell layer (mirror of
+  `drawDanger`; tints `data/amity.ts renderAlpha 0.5 / renderMagFull 2.5`, tuned to the live field's
+  mass not its peak — a browser probe showed peak ~5 but the mass sits in [0.5,2], so a low magFull
+  lights the broad district, not just the hottest cells). Gold chosen (brac) to match the gold
+  trade-pulses → unified commerce language; war = red + white sparks, commerce = gold glow. Always-on
+  ambient, gated on nothing (per [[intensity-is-perf-not-visual]]). Plus a **pax view toggle ('a')**
+  mirroring border-mode ('v'): ghosts nodes, hides the kin mesh + ground/resource layers, and pushes
+  danger+amity to full alpha so the war/commerce map pops on the dark field — the clearest way to
+  watch conflict recede as a seam pacifies. Verified headful on the real GPU (Chrome-devtools): gold
+  districts + red war-zones read unmistakably. Typecheck clean.
 
 ---
 

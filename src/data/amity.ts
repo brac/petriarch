@@ -36,4 +36,11 @@ export const AMITY = {
   /** conflict's effective aggressionThreshold is raised by suppress·amity[cell]; a high-amity cell
    *  needs a more-committed aggressor to start a fight (threshold crosses the gene max → no fights). */
   suppress: 0.3,
+  /** render (3c pax-haze): cell-overlay alpha at full magnitude. A calm cyan district that the gold
+   *  trade-pulses shimmer over — the cyber-net payoff: commerce visibly cooling a seam. */
+  renderAlpha: 0.5,
+  /** render: amity magnitude that maps to full overlay alpha. Tuned to the field's MASS (a live
+   *  probe at the strong config: peak ~5 but ~145 cells in [1,3] and ~417 in [0.5,5]) — set low so
+   *  the broad pacified district lights up, not just the few hottest cells. */
+  renderMagFull: 2.5,
 }; // mutable: the dev panel / study harness tunes these live

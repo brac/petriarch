@@ -171,6 +171,13 @@ function main(): void {
       // eslint-disable-next-line no-console
       console.info(`Petriarch: borders display ${on ? "ON" : "OFF"}`);
     }
+    // 'a' → pax view: isolate the danger(red)/amity(gold) stigmergy so you can watch conflict
+    // recede as trade pacifies a seam (no sim effect; works in CPU and GPU mode).
+    else if (e.key === "a" || e.key === "A") {
+      const on = renderer.togglePax();
+      // eslint-disable-next-line no-console
+      console.info(`Petriarch: pax view ${on ? "ON" : "OFF"}`);
+    }
   });
 
   void renderer.init(appEl).then(() => {

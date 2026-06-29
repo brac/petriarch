@@ -29,6 +29,7 @@ import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
+import { AMITY } from "../data/amity";
 import { PASSABILITY } from "../data/passability";
 
 const OFFSCREEN = -10000;
@@ -41,6 +42,9 @@ const CLAIM_SAT = 0.7; // territory hue saturation (claim encodes lineage, not m
 const CLAIM_LUM = 0.5; // territory hue lightness
 const CLAIM_EPS = 1e-3; // below this magnitude a cell is unclaimed (alpha 0)
 const DANGER_TINT = 0xff3b30; // death-zone red
+const AMITY_TINT = 0xf5b942; // pax-zone warm gold — the trading district; matches the gold trade-
+// pulses (unified commerce language) and contrasts the cool agent field. War = red + white sparks;
+// commerce = a gold glow alive with brighter gold pulses.
 const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
 const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
 const TRADE_PULSE_TINT = 0xffd633; // barter flash — bright gold (commerce), vs conflict white
@@ -72,6 +76,11 @@ export class NetRenderer {
   private edgeLayer = new Graphics();
   private borderLayer = new Graphics();
   private borderMode = false;
+  // Pax view ('a'): isolate the trade/conflict stigmergy. Ghost the nodes, hide the kin mesh and
+  // the ground/resource layers, and let danger(red) + amity(gold) pop on the dark field — so you
+  // can watch conflict recede as commerce takes a seam. A view toggle, no sim effect.
+  private paxMode = false;
+  private groundLayers: Container[] = []; // passability/claim/resource layers, hidden in pax view
 
   private nodeContainer!: ParticleContainer;
   private nodeParticles: Particle[] = [];
@@ -81,6 +90,7 @@ export class NetRenderer {
   private resBParticles: Particle[] = [];
   private claimParticles: Particle[] = [];
   private dangerParticles: Particle[] = [];
+  private amityParticles: Particle[] = [];
   private passabilityParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
@@ -133,6 +143,10 @@ export class NetRenderer {
     this.resBParticles = resBLayer.particles;
     const dangerLayer = this.buildCellLayer(cellTex, DANGER_TINT);
     this.dangerParticles = dangerLayer.particles;
+    const amityLayer = this.buildCellLayer(cellTex, AMITY_TINT);
+    this.amityParticles = amityLayer.particles;
+    // Ground/resource layers dimmed away in the pax view so danger+amity dominate.
+    this.groundLayers = [passabilityLayer.container, claimLayer.container, resLayer.container, resBLayer.container];
 
     // --- node texture + pool ---
     const nodeTex = this.app.renderer.generateTexture(
@@ -167,6 +181,7 @@ export class NetRenderer {
       resLayer.container,
       resBLayer.container,
       dangerLayer.container,
+      amityLayer.container,
       this.edgeLayer,
       this.nodeContainer,
       this.borderLayer,
@@ -188,6 +203,7 @@ export class NetRenderer {
     this.drawResources(world);
     this.drawResourceB(world);
     this.drawDanger(world);
+    this.drawAmity(world);
     this.drawNodes(world);
     this.drawEdges(world);
     this.drawBorders(world);
@@ -200,6 +216,14 @@ export class NetRenderer {
   toggleBorders(): boolean {
     this.borderMode = !this.borderMode;
     return this.borderMode;
+  }
+
+  /** View toggle: isolate the pax/conflict fields — ghost nodes, hide ground+mesh, danger+amity
+   *  pop. Watch conflict recede as trade pacifies a seam. Returns the new state. */
+  togglePax(): boolean {
+    this.paxMode = !this.paxMode;
+    for (const c of this.groundLayers) c.visible = !this.paxMode;
+    return this.paxMode;
   }
 
   /** Convert a DOM/client point to world coordinates (for god-tool placement). */
@@ -280,11 +304,30 @@ export class NetRenderer {
     const dg = world.danger;
     const parts = this.dangerParticles;
     const inv = 1 / STIGMERGY.dangerRenderMagFull;
+    const aMax = this.paxMode ? 1 : STIGMERGY.dangerRenderAlpha; // pop on the dark field in pax view
     for (let c = 0; c < parts.length; c++) {
       let v = dg[c]! * inv;
       if (v < 0) v = 0;
       else if (v > 1) v = 1;
-      parts[c]!.alpha = v * STIGMERGY.dangerRenderAlpha;
+      parts[c]!.alpha = v * aMax;
+    }
+  }
+
+  // Pax-zone heatmap: cyan glow where amity (trade) has accumulated — a calm trading district.
+  // The opposite of the danger field: where this lights up, conflict has been suppressed. The
+  // gold trade-pulses shimmer over it, so a flourishing seam reads as a calm cyan zone alive
+  // with commerce, vs a war's red-and-white fraying.
+  private drawAmity(world: World): void {
+    const am = world.amity;
+    const parts = this.amityParticles;
+    const inv = 1 / AMITY.renderMagFull;
+    // Pax view darkens everything else, so push amity to full opacity to make the district unmistakable.
+    const aMax = this.paxMode ? 1 : AMITY.renderAlpha;
+    for (let c = 0; c < parts.length; c++) {
+      let v = am[c]! * inv;
+      if (v < 0) v = 0;
+      else if (v > 1) v = 1;
+      parts[c]!.alpha = v * aMax;
     }
   }
 
@@ -292,8 +335,8 @@ export class NetRenderer {
     const a = world.agents;
     const { posX, posY, energy, energyB, genes, count } = a;
     const parts = this.nodeParticles;
-    // In border mode the nodes are ghosted so the magenta seams dominate the frame.
-    const aScale = this.borderMode ? BORDER_NODE_ALPHA : 1;
+    // In border/pax mode the nodes are ghosted so the seams / stigmergy fields dominate the frame.
+    const aScale = this.borderMode || this.paxMode ? BORDER_NODE_ALPHA : 1;
     for (let i = 0; i < count; i++) {
       const p = parts[i]!;
       p.x = posX[i]!;
@@ -320,7 +363,7 @@ export class NetRenderer {
   private drawEdges(world: World): void {
     const g = this.edgeLayer;
     g.clear();
-    if (this.borderMode) return; // border view hides the kin mesh
+    if (this.borderMode || this.paxMode) return; // border/pax view hides the kin mesh
 
     const a = world.agents;
     const { posX, posY, genes, count } = a;

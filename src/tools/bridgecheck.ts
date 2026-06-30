@@ -14,6 +14,7 @@ import { BRIDGE } from "../data/bridge";
 
 const SEEDS = [11, 22], TICKS = 8000, TAIL = 3000;
 const DEF_THRESH = BRIDGE.setThreshold;
+const DEF_PULL = BRIDGE.attractPull;
 
 interface M { pop: number; loadK: number; delivK: number; trdK: number; road: number }
 const ZERO: M = { pop: 0, loadK: 0, delivK: 0, trdK: 0, road: 0 };
@@ -24,11 +25,12 @@ function roadCells(w: World): number {
   return n;
 }
 
-function run(name: string, threshold: number): M & { name: string } {
+function run(name: string, threshold: number, pull: number): M & { name: string } {
   const acc: M = { ...ZERO };
   let ns = 0;
   for (const seed of SEEDS) {
     BRIDGE.setThreshold = threshold;
+    BRIDGE.attractPull = pull;
     const w = createWorld(seed);
     initResourceField(w); seedPopulation(w);
     const a = w.agents;
@@ -49,6 +51,7 @@ function run(name: string, threshold: number): M & { name: string } {
     ns++;
   }
   BRIDGE.setThreshold = DEF_THRESH;
+  BRIDGE.attractPull = DEF_PULL;
   const d = ns || 1;
   for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! /= d;
   return { name, ...acc };
@@ -60,7 +63,9 @@ function fmt(m: M & { name: string }): string {
   return `${m.name.padEnd(10)} pop${p(m.pop, 6)} | load/k${p(m.loadK, 5)} deliv/k${p(m.delivK, 5)} mort${p(mort, 5)} | trd/k${p(m.trdK, 6)} | roadCells${p(m.road, 6)}`;
 }
 
-console.log(`# Bridge MVP study — seeds ${SEEDS.join(",")} ticks ${TICKS} tail ${TAIL} — roadCost ${BRIDGE.roadCost}`);
-console.log(`# WANT ON vs OFF: deliv/k UP, mort DOWN, pop UP, roadCells > 0.`);
-console.log(fmt(run("bridge-OFF", 1e9)));   // threshold unreachable → no roads ever
-console.log(fmt(run("bridge-ON", DEF_THRESH)));
+console.log(`# Bridge study — seeds ${SEEDS.join(",")} ticks ${TICKS} tail ${TAIL} — roadCost ${BRIDGE.roadCost}`);
+console.log(`# attractPull sweep: does ACTIVE road-steering (pull > 0) beat passive roads (pull 0)?`);
+console.log(fmt(run("OFF", 1e9, 0)));          // no roads ever (baseline)
+console.log(fmt(run("pull0(pasv)", DEF_THRESH, 0)));   // roads, no active steering
+console.log(fmt(run("pull0.5", DEF_THRESH, 0.5)));
+console.log(fmt(run("pull1.3", DEF_THRESH, 1.3)));

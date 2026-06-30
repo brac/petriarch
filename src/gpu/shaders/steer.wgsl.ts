@@ -48,6 +48,7 @@ struct Params {
   scentWeight : f32, // long-range supply-scent pull strength (P4a)
   provisionFloor : f32, // P4b: reserve floor below which an agent won't undertake the crossing
   travelScent : f32, // P4c: committed-traveller scent weight (replaces scentWeight when carrying)
+  attractPull : f32, // active road-steering: pull weight toward the road-attraction basin (committed)
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -177,6 +178,8 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   var dmx = 0.0;
   var dmy = 0.0;
   var scentGate = 0.0;
+  var raX = 0.0; // road-attraction gradient (committed carriers converge onto the nearest lane)
+  var raY = 0.0;
   if (onDemand) {
     let gw = i32(P.resGridW);
     let gh = i32(P.resGridH);
@@ -205,6 +208,13 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
       sA = select(0.0, 1.0, seekA);
       sB = select(1.0, 0.0, seekA);
       scentGate = 1.0;
+      // Road attraction (committed only): ascend the roadAttract basin (3rd scent slice) toward the
+      // nearest lane; the supply-scent below then carries the carrier along it. Mirrors CPU steer.ts.
+      let ra2 = 2u * nCells;
+      raX = scent[ra2 + u32(rowc + xr)] - scent[ra2 + u32(rowc + xl)];
+      raY = scent[ra2 + u32(yd * gw + cx)] - scent[ra2 + u32(yu * gw + cx)];
+      let rl = sqrt(raX * raX + raY * raY);
+      if (rl > 1e-4) { raX = raX / rl; raY = raY / rl; } else { raX = 0.0; raY = 0.0; }
     }
     dmx = (scent[u32(rowc + xr)] - scent[u32(rowc + xl)]) * sA
         + (scent[nCells + u32(rowc + xr)] - scent[nCells + u32(rowc + xl)]) * sB;
@@ -239,10 +249,13 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     let w = select(P.scentWeight * scentGate, P.travelScent, committed);
     dm = genes[bi + G_RA] * lvl * w;
   }
+  // road attraction: a committed carrier converges onto the nearest lane (universal × level, not
+  // gene-scaled — every carrier uses the bridge). Composes with dm (scent moves it along). Mirrors CPU.
+  let rp = select(0.0, P.attractPull * lvl, onDemand && committed);
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
-  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;
-  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + wa * wy;
+  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + wa * wx;
+  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + wa * wy;
   let l = sqrt(dx * dx + dy * dy);
   if (l > 1e-4) { dx = dx / l; dy = dy / l; } else { dx = 0.0; dy = 0.0; }
 

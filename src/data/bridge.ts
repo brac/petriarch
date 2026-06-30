@@ -28,6 +28,22 @@ export const BRIDGE = {
   /** Road thickness in cells. A road is allowed to be this many rows tall before the spacing rule blocks
    *  the next row — so a road reads as a proper lane, not a 1-px line. */
   roadWidth: 2,
+  // --- active road-steering (BRIDGE_PLAN §active "prefer the bridge"): committed carriers CONVERGE onto
+  // the nearest road. `roadAttract` is deposited at road cells + widely diffused into a basin; steer
+  // climbs its gradient. The supply-scent then carries the carrier ALONG the lane across the gap. ---
+  /** per-road-cell per-tick magnitude added to the roadAttract basin. */
+  attractDeposit: 0.1,
+  /** 4-neighbour blend fraction — HIGH so the basin spreads several cells out from each lane, letting a
+   *  carrier feel (and pick) the nearest road from within the gap, not only when already on it. */
+  attractDiffuse: 0.28,
+  /** per-tick multiplier (<1). Slow so a stable basin builds around the (mostly static) road network. */
+  attractDecay: 0.99,
+  /** steer weight: how hard a committed carrier pulls toward the road basin's gradient. INVERTED-U —
+   *  baked 0.5 (the peak): gentle enough to nudge a nearby carrier ONTO the lane without a big sideways
+   *  detour, vs the scent that carries it along. Too strong (≥1.3) makes carriers detour/zigzag across
+   *  the lane → WORSE than passive roads. 0 = passive (roads help only those already on them). Sweep
+   *  (tools/bridgecheck.ts): deliv/k OFF 38 → passive 49 → pull0.5 70 → pull1.3 47. */
+  attractPull: 0.5,
   /** render: a hardened road draws as a gold lane (the diffuse gold trail THICKENING into a paved road —
    *  one commerce-gold language). Mid-gold + moderate alpha so the additive layer reads as gold, not a
    *  blown-out white block. */

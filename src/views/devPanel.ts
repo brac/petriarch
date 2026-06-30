@@ -79,6 +79,7 @@ const TUNABLES: Tunable[] = [
   { group: "Bridge", label: "roadCost", min: 0.1, max: 1, step: 0.05, get: () => BRIDGE.roadCost, set: (v) => { BRIDGE.roadCost = v; } },
   { group: "Bridge", label: "roadSpacing", min: 0, max: 12, step: 1, get: () => BRIDGE.roadSpacing, set: (v) => { BRIDGE.roadSpacing = v; } },
   { group: "Bridge", label: "roadWidth", min: 1, max: 5, step: 1, get: () => BRIDGE.roadWidth, set: (v) => { BRIDGE.roadWidth = v; } },
+  { group: "Bridge", label: "roadPull", min: 0, max: 2, step: 0.1, get: () => BRIDGE.attractPull, set: (v) => { BRIDGE.attractPull = v; } },
   { group: "Bridge", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => BRIDGE.renderAlpha, set: (v) => { BRIDGE.renderAlpha = v; } },
 ];
 

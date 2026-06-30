@@ -16,6 +16,7 @@ import { COG, COGNITION } from "../../data/cognition";
 import { STIGMERGY } from "../../data/stigmergy";
 import { SCENT } from "../../data/scent";
 import { CARAVAN } from "../../data/caravan";
+import { BRIDGE } from "../../data/bridge";
 import { SIM } from "../../data/sim";
 
 const TAU = Math.PI * 2;
@@ -28,6 +29,8 @@ export function steer(world: World): void {
   const danger = world.danger;
   const scA = world.scentA;
   const scB = world.scentB;
+  const roadAtt = world.roadAttract;
+  const attractPull = BRIDGE.attractPull;
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
   const gh = RESOURCE_GRID_H;
@@ -179,6 +182,8 @@ export function steer(world: World): void {
     let dmx = 0;
     let dmy = 0;
     let scentGate = 0;
+    let raX = 0; // road-attraction gradient (committed carriers converge onto the nearest lane)
+    let raY = 0;
     if (onDemand) {
       let cx = (xi / RES_CELL_W) | 0;
       if (cx < 0) cx = 0;
@@ -212,6 +217,19 @@ export function steer(world: World): void {
         sA = seekA ? 1 : 0;
         sB = seekA ? 0 : 1;
         scentGate = 1;
+        // Road attraction (committed only): ascend the roadAttract basin toward the nearest lane. The
+        // supply-scent (below) then carries the carrier ALONG the lane; on the lane the basin is ~flat
+        // so it doesn't stall the crossing. "All agents use the bridge."
+        raX = roadAtt[rowc + xr]! - roadAtt[rowc + xl]!;
+        raY = roadAtt[yd * gw + cx]! - roadAtt[yu * gw + cx]!;
+        const rl = Math.sqrt(raX * raX + raY * raY);
+        if (rl > 1e-4) {
+          raX /= rl;
+          raY /= rl;
+        } else {
+          raX = 0;
+          raY = 0;
+        }
       }
       dmx = (scA[rowc + xr]! - scA[rowc + xl]!) * sA + (scB[rowc + xr]! - scB[rowc + xl]!) * sB;
       dmy = (scA[yd * gw + cx]! - scA[yu * gw + cx]!) * sA + (scB[yd * gw + cx]! - scB[yu * gw + cx]!) * sB;
@@ -248,10 +266,13 @@ export function steer(world: World): void {
     // ramp (P4b). Committed: × CARAVAN.travelScent (dominates, scentGate is already 1) so the lone
     // traveller actually crosses (P4c).
     const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * (committed ? travelScent : scentWeight * scentGate) : 0;
+    // road attraction: a committed carrier converges onto the nearest road lane (universal × level, not
+    // gene-scaled — every carrier uses the bridge). Composes with dm (scent moves it along the lane).
+    const rp = onDemand && committed ? attractPull * level : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
-    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;
-    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + wa * wy;
+    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + wa * wx;
+    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + wa * wy;
 
     const l = Math.sqrt(dx * dx + dy * dy);
     if (l > 1e-4) {

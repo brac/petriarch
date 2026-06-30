@@ -19,11 +19,33 @@ import { RESOURCE_GRID_W, RESOURCE_GRID_H } from "../../data/capacity";
 
 const GW = RESOURCE_GRID_W;
 const GH = RESOURCE_GRID_H;
+const N = GW * GH;
 
 /** A road cell = passability in (0,1) (ground is 1, ocean ≫ 1). */
 function isRoad(pass: Float32Array, c: number): boolean {
   const v = pass[c]!;
   return v > 0 && v < 1;
+}
+
+// Diffuse back-buffer for the roadAttract basin (neighbour reads can't be in place). Preallocated once.
+const attractScratch = new Float32Array(N);
+
+// next = ((1-k)*cur + k*avg4) * decay, edges clamped — same scheme as stigmergy.ts diffuseDecay.
+function diffuseDecay(field: Float32Array, k: number, decay: number): void {
+  const km = 1 - k;
+  for (let cy = 0; cy < GH; cy++) {
+    const row = cy * GW;
+    const up = cy > 0 ? row - GW : row;
+    const dn = cy < GH - 1 ? row + GW : row;
+    for (let cx = 0; cx < GW; cx++) {
+      const idx = row + cx;
+      const xl = cx > 0 ? idx - 1 : idx;
+      const xr = cx < GW - 1 ? idx + 1 : idx;
+      const avg4 = (field[xl]! + field[xr]! + field[up + cx]! + field[dn + cx]!) * 0.25;
+      attractScratch[idx] = (km * field[idx]! + k * avg4) * decay;
+    }
+  }
+  field.set(attractScratch);
 }
 
 export function bridge(world: World): void {
@@ -57,4 +79,12 @@ export function bridge(world: World): void {
       if (!blocked && body < width) pass[c] = road;
     }
   }
+
+  // --- road-attraction basin: deposit at every road cell, then diffuse + decay. Builds a smooth field
+  // peaking on the lanes; steer (committed carriers) climbs its gradient to converge onto the nearest
+  // road. Mostly-static roads → a stable basin. ---
+  const att = world.roadAttract;
+  const dep = BRIDGE.attractDeposit;
+  for (let c = 0; c < N; c++) if (isRoad(pass, c)) att[c] = att[c]! + dep;
+  diffuseDecay(att, BRIDGE.attractDiffuse, BRIDGE.attractDecay);
 }

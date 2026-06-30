@@ -272,9 +272,11 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   // GPU: grid → sense → steer on the frozen snapshot (wander zeroed in snapGenes).
   // danger is frozen too so GPU reads the same field the CPU steer just read.
   const snapDanger = world.danger.slice();
+  const snapRoadAtt = world.roadAttract.slice(); // active road-steering basin; committed carriers climb it
   gpu.buildHash(snapX, snapY, count);
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live gpuSim upload (P4a)
+  gpu.uploadRoadAttract(snapRoadAtt); // mirror the live per-tick road-attraction upload
   gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, snapCarry, snapHome, count, world.tick);
   const gs = await gpu.readSteer();
 
@@ -521,6 +523,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   const snapRes = world.resources.slice();
   const snapResB = world.resourceB.slice();
   const snapDanger = world.danger.slice();
+  const snapRoadAtt = world.roadAttract.slice(); // active road-steering basin; committed carriers climb it
   const snapCarry = a.carryState.slice(0, count); // P4c state machine — GPU steer state-branches on it
   const snapHome = a.homeGood.slice(0, count);
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
@@ -575,6 +578,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
   gpu.uploadPassability(world.passability); // integrate reads it; mirror the live upload
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live upload (P4a)
+  gpu.uploadRoadAttract(snapRoadAtt); // active road-steering basin; mirror the live per-tick upload
   gpu.uploadCarry(snapCarry, snapHome, count); // carry/home state (P4c); steer state-branches on it
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();

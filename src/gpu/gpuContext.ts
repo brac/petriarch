@@ -26,6 +26,7 @@ import { COGNITION } from "../data/cognition";
 import { STIGMERGY } from "../data/stigmergy";
 import { SCENT } from "../data/scent";
 import { CARAVAN } from "../data/caravan";
+import { BRIDGE } from "../data/bridge";
 import { PASSABILITY } from "../data/passability";
 import { TICK_DT } from "../core/time";
 
@@ -271,8 +272,9 @@ export class GpuContext {
     this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.energyBBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
-    // Packed supply-scent: 2×grid (scentA | scentB), static — uploaded once (P4a).
-    this.scentBuf = buf(2 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    // Packed scent buffer: 3×grid = [scentA | scentB | roadAttract]. scentA/B static (P4a); roadAttract
+    // dynamic (the road-attraction basin, re-uploaded each tick as roads form — active road-steering).
+    this.scentBuf = buf(3 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
     // Packed carry/home state, one u32 per agent (P4c); re-uploaded each think tick (Tier B mutates it).
     this.carryBuf = buf(capacity * u32, STORAGE | GPUBufferUsage.COPY_DST);
     this.carryHost = new Uint32Array(capacity);
@@ -463,6 +465,7 @@ export class GpuContext {
     this.steerParamsF32[11] = SCENT.weight; // long-range supply-scent pull (P4a)
     this.steerParamsF32[12] = SCENT.provisionFloor; // P4b provisioning gate floor
     this.steerParamsF32[13] = CARAVAN.travelScent; // P4c committed-traveller scent weight
+    this.steerParamsF32[14] = BRIDGE.attractPull; // active road-steering: pull committed carriers onto lanes
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 
@@ -825,6 +828,13 @@ export class GpuContext {
     const f32 = Float32Array.BYTES_PER_ELEMENT;
     this.queue.writeBuffer(this.scentBuf, 0, scentA as Float32Array<ArrayBuffer>, 0, RES_CELLS);
     this.queue.writeBuffer(this.scentBuf, RES_CELLS * f32, scentB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload the road-attraction basin into the 3rd slice of the packed scent buffer (steer reads it for
+   *  active road-steering). DYNAMIC — call each tick (roads form/grow), unlike the static scentA/B. */
+  uploadRoadAttract(roadAttract: Float32Array): void {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    this.queue.writeBuffer(this.scentBuf, 2 * RES_CELLS * f32, roadAttract as Float32Array<ArrayBuffer>, 0, RES_CELLS);
   }
 
   /** Pack carryState (0/1/2) + homeGood (0/1) into one u32 per agent and upload (P4c; steer reads it).

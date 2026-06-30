@@ -99,6 +99,11 @@ export interface World {
   // diffused/decayed by tierB/stigmergy.ts. RENDER-ONLY (like claim): nothing steers on it, never on
   // the GPU. Carrier traffic concentrates into lanes → the trade route glows (docs/P4C_PLAN.md §P4d).
   readonly trail: Float32Array;
+  // `roadAttract` field — deposited at hardened ROAD cells and widely diffused (tierB/bridge.ts), so it
+  // forms a smooth basin peaking on each road lane. Committed carriers climb its gradient to CONVERGE
+  // onto the nearest road (the supply-scent then carries them ALONG it across the gap) — "all agents use
+  // the bridge" (docs/BRIDGE_PLAN.md). Read by steer (Tier A): uploaded to the GPU packed with the scent.
+  readonly roadAttract: Float32Array;
   // Passability (movement-cost) field — static admin/construction substrate, same grid.
   // Default 1 (normal ground); a painted ocean/wall is a huge sentinel cost. Read in the
   // integrate hot path (CPU + GPU) to block/throttle the step; written by the paint tool
@@ -139,6 +144,7 @@ export function createWorld(seed: number): World {
     scentA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     scentB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     trail: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    roadAttract: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     // Default ground cost is 1, not 0 — fill after allocation (zero would read as a
     // free/super-fast cell to the integrator's throttle).
     passability: ((): Float32Array => {

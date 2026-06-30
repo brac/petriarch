@@ -25,6 +25,7 @@ import { stigmergy } from "../sim/tierB/stigmergy";
 import { conflict } from "../sim/tierB/conflict";
 import { trade } from "../sim/tierB/trade";
 import { caravan } from "../sim/tierB/caravan";
+import { bridge } from "../sim/tierB/bridge";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
 import { drainGod } from "../sim/tierB/god";
@@ -50,7 +51,8 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   // and the hash is current — so god commands apply cleanly, then get uploaded below.
   drainGod(world); // 0 — apply buffered god perturbations before the GPU upload
   resources(world); // 1 — Tier B: regrow the field, age out the hazard
-  stigmergy(world); // 1b — claim/territory field (CPU; claim never goes to the GPU)
+  stigmergy(world); // 1b — claim/territory + caravan trail (CPU; claim never goes to the GPU)
+  bridge(world); // 1c — harden trail into road; written into passability, uploaded below for GPU integrate
   const tAfterRes = performance.now();
 
   const count = a.count;
@@ -155,7 +157,8 @@ export class GpuPipeline {
     // hash) and BEFORE the upload below — otherwise the readback would clobber the edits.
     drainGod(world);
     resources(world);
-    stigmergy(world); // claim/territory field (CPU; claim never goes to the GPU)
+    stigmergy(world); // claim/territory + caravan trail (CPU; claim never goes to the GPU)
+    bridge(world); // harden trail into road; written into passability, uploaded below for GPU integrate
     const count = a.count;
     if (count > 0) {
       this.gpu.uploadState(a.posX, a.posY, a.velX, a.velY, a.energy, a.energyB, a.age, a.genes, count);

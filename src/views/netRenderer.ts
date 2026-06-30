@@ -31,6 +31,7 @@ import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
 import { AMITY } from "../data/amity";
 import { TRAIL } from "../data/trail";
+import { BRIDGE } from "../data/bridge";
 import { PASSABILITY } from "../data/passability";
 
 const OFFSCREEN = -10000;
@@ -96,6 +97,7 @@ export class NetRenderer {
   private dangerParticles: Particle[] = [];
   private amityParticles: Particle[] = [];
   private trailParticles: Particle[] = [];
+  private bridgeParticles: Particle[] = [];
   private passabilityParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
@@ -152,6 +154,8 @@ export class NetRenderer {
     this.amityParticles = amityLayer.particles;
     const trailLayer = this.buildCellLayer(cellTex, TRAIL_TINT);
     this.trailParticles = trailLayer.particles;
+    const bridgeLayer = this.buildCellLayer(cellTex, BRIDGE.renderTint);
+    this.bridgeParticles = bridgeLayer.particles;
     // Ground/resource layers dimmed away in the pax view so danger+amity dominate.
     this.groundLayers = [passabilityLayer.container, claimLayer.container, resLayer.container, resBLayer.container];
 
@@ -190,6 +194,7 @@ export class NetRenderer {
       dangerLayer.container,
       amityLayer.container,
       trailLayer.container,
+      bridgeLayer.container,
       this.edgeLayer,
       this.nodeContainer,
       this.borderLayer,
@@ -213,6 +218,7 @@ export class NetRenderer {
     this.drawDanger(world);
     this.drawAmity(world);
     this.drawTrail(world);
+    this.drawBridge(world);
     this.drawNodes(world);
     this.drawEdges(world);
     this.drawBorders(world);
@@ -354,6 +360,20 @@ export class NetRenderer {
       if (v < 0) v = 0;
       else if (v > 1) v = 1;
       parts[c]!.alpha = v * aMax;
+    }
+  }
+
+  // Roads: a SOLID bright-gold lane on every hardened cell (passability < 1, i.e. road, not ocean
+  // ≥1 or ground ==1). The diffuse gold trail THICKENS into a paved road where carrier traffic wore
+  // it past the threshold — the route made permanent. Always on (not gated by pax view): a road is
+  // built infrastructure, not a transient field.
+  private drawBridge(world: World): void {
+    const pass = world.passability;
+    const parts = this.bridgeParticles;
+    const a = BRIDGE.renderAlpha;
+    for (let c = 0; c < parts.length; c++) {
+      const v = pass[c]!;
+      parts[c]!.alpha = v > 0 && v < 1 ? a : 0; // road = cost in (0,1); ground(1)/ocean(≫1) → off
     }
   }
 

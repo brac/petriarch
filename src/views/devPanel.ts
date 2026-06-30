@@ -17,6 +17,7 @@ import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
 import { TRAIL } from "../data/trail";
+import { BRIDGE } from "../data/bridge";
 import { COG, COGNITION, COG_PRESETS } from "../data/cognition";
 import { GpuContext } from "../gpu/gpuContext";
 import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism, verifyChain } from "../gpu/verify";
@@ -71,6 +72,13 @@ const TUNABLES: Tunable[] = [
   { group: "Trail", label: "decay", min: 0.9, max: 1, step: 0.001, get: () => TRAIL.decay, set: (v) => { TRAIL.decay = v; } },
   { group: "Trail", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => TRAIL.renderAlpha, set: (v) => { TRAIL.renderAlpha = v; } },
   { group: "Trail", label: "renderMagFull", min: 0.5, max: 12, step: 0.5, get: () => TRAIL.renderMagFull, set: (v) => { TRAIL.renderMagFull = v; } },
+
+  // Bridge / road — hot trail HARDENS into a fast passability lane (survivable crossing). Lower
+  // setThreshold → roads form sooner / wider; lower roadCost → faster road (1/cost speed-up).
+  { group: "Bridge", label: "setThreshold", min: 0.5, max: 12, step: 0.5, get: () => BRIDGE.setThreshold, set: (v) => { BRIDGE.setThreshold = v; } },
+  { group: "Bridge", label: "roadCost", min: 0.1, max: 1, step: 0.05, get: () => BRIDGE.roadCost, set: (v) => { BRIDGE.roadCost = v; } },
+  { group: "Bridge", label: "maxRoadNbr", min: 0, max: 8, step: 1, get: () => BRIDGE.maxRoadNeighbors, set: (v) => { BRIDGE.maxRoadNeighbors = v; } },
+  { group: "Bridge", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => BRIDGE.renderAlpha, set: (v) => { BRIDGE.renderAlpha = v; } },
 ];
 
 function fmt(v: number): string {

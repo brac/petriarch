@@ -19,6 +19,7 @@ import { stigmergy } from "./tierB/stigmergy";
 import { conflict } from "./tierB/conflict";
 import { trade } from "./tierB/trade";
 import { caravan } from "./tierB/caravan";
+import { bridge } from "./tierB/bridge";
 import { reproduce } from "./tierB/reproduce";
 import { death } from "./tierB/death";
 import { drainGod } from "./tierB/god";
@@ -29,7 +30,8 @@ export function simStep(world: World): void {
 
   drainGod(world); // 0 — apply buffered god perturbations before any system reads the world
   resources(world); // 1
-  stigmergy(world); // 1b — claim/territory field (deposit → diffuse → decay)
+  stigmergy(world); // 1b — claim/territory + caravan trail (deposit → diffuse → decay)
+  bridge(world); // 1c — harden heavily-travelled trail into permanent road (before integrate reads it)
 
   let didThink = false;
   if (++world.thinkTimer >= world.intensity.thinkInterval) {

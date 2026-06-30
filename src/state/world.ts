@@ -89,6 +89,12 @@ export interface World {
   // by tierB/stigmergy.ts, read by conflict to SUPPRESS fights in pacified cells (the
   // TRADE-vs-AGGRESSION tension, docs/P3_PLAN.md). Same grid; CPU-only, never on the GPU.
   readonly amity: Float32Array;
+  // Supply-scent fields (one per nutrient) — a STATIC, widely-diffused beacon of where each nutrient
+  // GROWS (built from resourceCap/resourceCapB at init by buildScent; rebuilt on restore). Read by
+  // steer: a B-deficient agent climbs scentB → pulled across the barren gap toward the B-region's
+  // food (the long-range REACH for long-distance trade, docs/P4_PLAN.md §P4a).
+  readonly scentA: Float32Array;
+  readonly scentB: Float32Array;
   // Passability (movement-cost) field — static admin/construction substrate, same grid.
   // Default 1 (normal ground); a painted ocean/wall is a huge sentinel cost. Read in the
   // integrate hot path (CPU + GPU) to block/throttle the step; written by the paint tool
@@ -126,6 +132,8 @@ export function createWorld(seed: number): World {
     claimSigC: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     danger: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     amity: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    scentA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    scentB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     // Default ground cost is 1, not 0 — fill after allocation (zero would read as a
     // free/super-fast cell to the integrator's throttle).
     passability: ((): Float32Array => {

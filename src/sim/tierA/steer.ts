@@ -14,6 +14,7 @@ import {
 } from "../../data/capacity";
 import { COG, COGNITION } from "../../data/cognition";
 import { STIGMERGY } from "../../data/stigmergy";
+import { SCENT } from "../../data/scent";
 import { SIM } from "../../data/sim";
 
 const TAU = Math.PI * 2;
@@ -24,9 +25,12 @@ export function steer(world: World): void {
   const res = world.resources;
   const resB = world.resourceB;
   const danger = world.danger;
+  const scA = world.scentA;
+  const scB = world.scentB;
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
   const gh = RESOURCE_GRID_H;
+  const maxEPerSize = SIM.maxEnergyPerSize;
 
   // Cognition knobs (Ant rung): `level` scales the deliberate terms against the
   // always-on wander; `mask` gates each term. Read once per pass (no per-agent alloc).
@@ -38,11 +42,14 @@ export function steer(world: World): void {
   const onAvoid = (mask & COG.AVOID) !== 0;
   const onWander = (mask & COG.WANDER) !== 0;
   const onDanger = (mask & COG.DANGER) !== 0;
+  const onDemand = (mask & COG.DEMAND) !== 0;
+  const scentWeight = SCENT.weight;
 
   for (let i = 0; i < count; i++) {
     const bi = i * GENE_COUNT;
     const xi = posX[i]!;
     const yi = posY[i]!;
+    const maxStore = genes[bi + GENE.SIZE]! * maxEPerSize; // shared by food (deficit) + demand (surplus)
 
     // --- cohesion: toward the kin centroid ---
     let cohX = 0;
@@ -108,7 +115,6 @@ export function steer(world: World): void {
       const yu = cy > 0 ? cy - 1 : cy;
       const yd = cy < gh - 1 ? cy + 1 : cy;
       const rowc = cy * gw;
-      const maxStore = genes[bi + GENE.SIZE]! * SIM.maxEnergyPerSize;
       let dA = 1 - energy[i]! / maxStore;
       if (dA < 0) dA = 0;
       else if (dA > 1) dA = 1;
@@ -161,6 +167,44 @@ export function steer(world: World): void {
       }
     }
 
+    // --- supply-scent gradient: long-range pull toward where the nutrient the agent LACKS grows
+    // (P4a). Climb scentX weighted by the DEFICIT of X — so a B-deficient agent climbs scentB toward
+    // the B-region across the gap. The scent is a widely-diffused STATIC beacon of food geography, so
+    // this 4-neighbour read points across the barren gap where the local food gradient is zero (the
+    // long-range version of the deficit-seeking food term). (DEMAND off => skip the samples.) ---
+    let dmx = 0;
+    let dmy = 0;
+    if (onDemand) {
+      let cx = (xi / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= gw) cx = gw - 1;
+      let cy = (yi / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= gh) cy = gh - 1;
+      const xl = cx > 0 ? cx - 1 : cx;
+      const xr = cx < gw - 1 ? cx + 1 : cx;
+      const yu = cy > 0 ? cy - 1 : cy;
+      const yd = cy < gh - 1 ? cy + 1 : cy;
+      const rowc = cy * gw;
+      // deficit: how short the agent is on each nutrient (0..1) — climb the scent of what you lack.
+      let sA = 1 - energy[i]! / maxStore;
+      if (sA < 0) sA = 0;
+      else if (sA > 1) sA = 1;
+      let sB = 1 - energyB[i]! / maxStore;
+      if (sB < 0) sB = 0;
+      else if (sB > 1) sB = 1;
+      dmx = (scA[rowc + xr]! - scA[rowc + xl]!) * sA + (scB[rowc + xr]! - scB[rowc + xl]!) * sB;
+      dmy = (scA[yd * gw + cx]! - scA[yu * gw + cx]!) * sA + (scB[yd * gw + cx]! - scB[yu * gw + cx]!) * sB;
+      const l = Math.sqrt(dmx * dmx + dmy * dmy);
+      if (l > 1e-4) {
+        dmx /= l;
+        dmy /= l;
+      } else {
+        dmx = 0;
+        dmy = 0;
+      }
+    }
+
     // --- wander: a seeded unit vector. Always advance the shared RNG stream so it
     // stays deterministic regardless of the WANDER toggle; gate the contribution. ---
     const ang = rng.next() * TAU;
@@ -175,10 +219,13 @@ export function steer(world: World): void {
     // danger descent shares the THREAT_AVOID gene (fearfulness); aggressive lineages
     // evolve low THREAT_AVOID → ignore death zones (the doc's aggression-gating).
     const da = onDanger ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
+    // scent shares the RESOURCE_ATTRACT gene (foraging drive), scaled by the global SCENT.weight
+    // so the long-haul pull is tunable vs local foraging (P4a — no new gene).
+    const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
-    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + wa * wx;
-    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + wa * wy;
+    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;
+    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + wa * wy;
 
     const l = Math.sqrt(dx * dx + dy * dy);
     if (l > 1e-4) {

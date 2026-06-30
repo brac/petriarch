@@ -22,9 +22,10 @@ export const COG = {
   AVOID: 1 << 3, // threat avoidance — dissimilar/aggressive neighbors (THREAT_AVOID)
   WANDER: 1 << 4, // seeded random wander (WANDER)
   DANGER: 1 << 5, // stigmergy danger-field descend — flee death zones (THREAT_AVOID)
+  DEMAND: 1 << 6, // long-range demand-field climb — haul surplus to where it's wanted (RESOURCE_ATTRACT)
 } as const;
 
-export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER | COG.DANGER;
+export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER | COG.DANGER | COG.DEMAND;
 
 /** Mutated live by HUD slider / dev-panel toggles / preset buttons. */
 export const COGNITION = {

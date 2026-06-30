@@ -29,7 +29,7 @@ export function stigmergy(world: World): void {
   const sb = world.claimSigB;
   const sc = world.claimSigC;
 
-  // --- deposit: each agent stamps its cell with presence + its signature ---
+  // --- deposit: each agent stamps its cell with presence + its signature (claim) ---
   const d = STIGMERGY.claimDeposit;
   for (let i = 0; i < count; i++) {
     const c = resCellIndex(posX[i]!, posY[i]!);
@@ -53,6 +53,7 @@ export function stigmergy(world: World): void {
 
   // --- amity diffuse + decay (deposit is event-driven, in trade.ts) ---
   diffuseDecay(world.amity, AMITY.diffuse, AMITY.decay);
+  // (supply-scent is STATIC — built once in init.ts buildScent, not evolved per tick.)
 }
 
 // next = ((1-k)*cur + k*avg4(neighbors)) * decay, edges clamped. Writes via scratch

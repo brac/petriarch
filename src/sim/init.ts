@@ -122,6 +122,40 @@ export function initResourceField(world: World): void {
     resources[c] = resourceCap[c]! * sf;
     resourceB[c] = resourceCapB[c]! * sf;
   }
+
+  buildScent(world);
+}
+
+/**
+ * Build the static supply-scent fields (P4a): a smooth long-range CONE peaking at each nutrient's
+ * region anchor, so the gradient points straight at that region from ANYWHERE — uniform magnitude, no
+ * gap-valley, no edge artifacts. A B-deficient agent climbs scentB → pulled across the barren gap
+ * toward the B-region (the long-range REACH the local 4-neighbour food gradient can't provide). Built
+ * once here and rebuilt on snapshot restore. Anchored to the worldgen's region centres (environmental
+ * geography, not a fitness score — rule 10). NOTE: assumes one anchor per nutrient (the two-region
+ * worldgen); a multi-region map would want a distance-transform from each nutrient's dominant cells
+ * instead (diffusion decays the far signal to noise — tried, doesn't reach). data/scent.ts tunes the
+ * steer weight; the cone reaches the whole map by construction.
+ */
+export function buildScent(world: World): void {
+  const { scentA, scentB } = world;
+  const R = RESOURCES;
+  const gw = RESOURCE_GRID_W;
+  const gh = RESOURCE_GRID_H;
+  const axA = R.regionACenterX * gw;
+  const axB = R.regionBCenterX * gw;
+  const ay = R.regionCenterY * gh;
+  const reach = Math.hypot(gw, gh); // covers the whole map → a gentle pull everywhere
+  for (let cy = 0; cy < gh; cy++) {
+    for (let cx = 0; cx < gw; cx++) {
+      const c = cy * gw + cx;
+      const dyc = cy - ay;
+      const dA = Math.hypot(cx - axA, dyc);
+      const dB = Math.hypot(cx - axB, dyc);
+      scentA[c] = reach - dA; // peaks at anchor A, decreases with distance → climb = toward A
+      scentB[c] = reach - dB;
+    }
+  }
 }
 
 /**

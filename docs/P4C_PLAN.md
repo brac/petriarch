@@ -1,6 +1,6 @@
 # Petriarch — Trade Phase 4c: the round trip (carriers, not migrants)
 
-## STATUS (DONE — round trip works, tuned/baked, GPU-verified on the 3090) — what's next
+## STATUS (DONE — round trip works, GPU-verified, route rendered; TRADE ARC COMPLETE) — what's next
 
 **P4c COMPLETE.** CPU round trip works + baked (loadFrac 0.40), and the GPU port (4c-4) is verified on
 the real 3090 (NVIDIA Ampere). The committed-traveller + carry-state logic now runs in `steer.wgsl`:
@@ -13,7 +13,18 @@ travelScent widens the f32/f64 flake): steer 1e-2→**2e-2** (worst ≤1.4e-2), 
 ≤0.06px, ≤1 agent/seed, run-to-run noisy via atomic intake). Non-systematic precision flake, documented
 in verify.ts. P4c is now FULLY on the GPU — no remaining non-parity. See [[petriarch-adding-a-gpu-field]].
 
-**NEXT:** P4d — the headful payoff (below). The trade arc's compute is done.
+**P4d DONE — the route is rendered.** A `trail` stigmergy field (render-only, Tier B, never GPU):
+committed carriers (carryState ≠ 0) deposit into it, WEIGHTED BY LOCAL BARRENNESS SQUARED so the route
+lights up the dead-zone crossing and drops out of the fed regions; diffuse 0.04 (crisp) + decay 0.992
+(a route persists between carriers, fades when traffic stops). Rendered as a BRIGHT-GOLD cell heatmap
+(`netRenderer.drawTrail`, tint 0xffd84d — the commerce language: gold districts linked by gold caravan
+lines), pops in the pax view, live-tunable via the dev-panel **Trail** group, serialized (snapshot v10).
+Calibrated against `tools/trailprobe.ts` (gap p90 ~2.9 → renderMagFull 3.0). Verified headful on the
+3090 (Playwright screenshot): two distinctly-hued societies with a gold caravan glow concentrated in the
+dead-zone band between them — "societies trading over a dead zone." **THE TRADE ARC IS COMPLETE.**
+
+**NEXT:** trade arc done. Future layers (CLAUDE.md build order §5): territory/treaties, then tech
+accumulation. Or revisit the milestone-2 morphology / other backlog.
 
 ---
 

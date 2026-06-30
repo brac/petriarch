@@ -30,6 +30,7 @@ import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
 import { AMITY } from "../data/amity";
+import { TRAIL } from "../data/trail";
 import { PASSABILITY } from "../data/passability";
 
 const OFFSCREEN = -10000;
@@ -45,6 +46,9 @@ const DANGER_TINT = 0xff3b30; // death-zone red
 const AMITY_TINT = 0xf5b942; // pax-zone warm gold — the trading district; matches the gold trade-
 // pulses (unified commerce language) and contrasts the cool agent field. War = red + white sparks;
 // commerce = a gold glow alive with brighter gold pulses.
+const TRAIL_TINT = 0xffd84d; // caravan-route gold — a BRIGHTER, whiter gold than the muted amity haze
+// (toward the trade-pulse gold) so the lit lanes read as routes within the same commerce language:
+// gold trading DISTRICTS linked by bright gold caravan LINES across the dead zone (P4d).
 const SPARK_TINT = 0xffffff; // conflict flash — white-hot ring, not an organism hue
 const SPARK_DECAY = 0.13; // alpha lost per render frame (~8-frame flash)
 const TRADE_PULSE_TINT = 0xffd633; // barter flash — bright gold (commerce), vs conflict white
@@ -91,6 +95,7 @@ export class NetRenderer {
   private claimParticles: Particle[] = [];
   private dangerParticles: Particle[] = [];
   private amityParticles: Particle[] = [];
+  private trailParticles: Particle[] = [];
   private passabilityParticles: Particle[] = [];
 
   private sparkContainer!: ParticleContainer;
@@ -145,6 +150,8 @@ export class NetRenderer {
     this.dangerParticles = dangerLayer.particles;
     const amityLayer = this.buildCellLayer(cellTex, AMITY_TINT);
     this.amityParticles = amityLayer.particles;
+    const trailLayer = this.buildCellLayer(cellTex, TRAIL_TINT);
+    this.trailParticles = trailLayer.particles;
     // Ground/resource layers dimmed away in the pax view so danger+amity dominate.
     this.groundLayers = [passabilityLayer.container, claimLayer.container, resLayer.container, resBLayer.container];
 
@@ -182,6 +189,7 @@ export class NetRenderer {
       resBLayer.container,
       dangerLayer.container,
       amityLayer.container,
+      trailLayer.container,
       this.edgeLayer,
       this.nodeContainer,
       this.borderLayer,
@@ -204,6 +212,7 @@ export class NetRenderer {
     this.drawResourceB(world);
     this.drawDanger(world);
     this.drawAmity(world);
+    this.drawTrail(world);
     this.drawNodes(world);
     this.drawEdges(world);
     this.drawBorders(world);
@@ -325,6 +334,23 @@ export class NetRenderer {
     const aMax = this.paxMode ? 1 : AMITY.renderAlpha;
     for (let c = 0; c < parts.length; c++) {
       let v = am[c]! * inv;
+      if (v < 0) v = 0;
+      else if (v > 1) v = 1;
+      parts[c]!.alpha = v * aMax;
+    }
+  }
+
+  // Caravan-route heatmap: bright-gold glow where committed carriers have travelled (deposited in
+  // stigmergy.ts). Carrier traffic funnels through the gap → deposits concentrate into LANES, so a
+  // well-travelled route lights up as a standing gold line while one-off paths fade. The headful
+  // payoff: two gold trading districts (amity) linked by gold caravan lines across the dead zone (P4d).
+  private drawTrail(world: World): void {
+    const tr = world.trail;
+    const parts = this.trailParticles;
+    const inv = 1 / TRAIL.renderMagFull;
+    const aMax = this.paxMode ? 1 : TRAIL.renderAlpha; // commerce: pop in the pax view like amity
+    for (let c = 0; c < parts.length; c++) {
+      let v = tr[c]! * inv;
       if (v < 0) v = 0;
       else if (v > 1) v = 1;
       parts[c]!.alpha = v * aMax;

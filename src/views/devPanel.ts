@@ -16,6 +16,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
+import { TRAIL } from "../data/trail";
 import { COG, COGNITION, COG_PRESETS } from "../data/cognition";
 import { GpuContext } from "../gpu/gpuContext";
 import { verifyHash, verifySense, verifySteer, verifyIntegrate, verifyMetabolism, verifyChain } from "../gpu/verify";
@@ -62,6 +63,14 @@ const TUNABLES: Tunable[] = [
   { group: "Danger", label: "fleeMaxPull", min: 0, max: 6, step: 0.1, get: () => STIGMERGY.dangerMaxPull, set: (v) => { STIGMERGY.dangerMaxPull = v; } },
   { group: "Danger", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => STIGMERGY.dangerRenderAlpha, set: (v) => { STIGMERGY.dangerRenderAlpha = v; } },
   { group: "Danger", label: "renderMagFull", min: 0.5, max: 20, step: 0.5, get: () => STIGMERGY.dangerRenderMagFull, set: (v) => { STIGMERGY.dangerRenderMagFull = v; } },
+
+  // Caravan-trail (route) field — committed carriers light up the dead-zone crossing (P4d). Higher
+  // renderMagFull → only the hottest lanes glow; lower decay → routes persist longer between carriers.
+  { group: "Trail", label: "deposit", min: 0, max: 0.3, step: 0.005, get: () => TRAIL.deposit, set: (v) => { TRAIL.deposit = v; } },
+  { group: "Trail", label: "diffuse", min: 0, max: 0.4, step: 0.01, get: () => TRAIL.diffuse, set: (v) => { TRAIL.diffuse = v; } },
+  { group: "Trail", label: "decay", min: 0.9, max: 1, step: 0.001, get: () => TRAIL.decay, set: (v) => { TRAIL.decay = v; } },
+  { group: "Trail", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => TRAIL.renderAlpha, set: (v) => { TRAIL.renderAlpha = v; } },
+  { group: "Trail", label: "renderMagFull", min: 0.5, max: 12, step: 0.5, get: () => TRAIL.renderMagFull, set: (v) => { TRAIL.renderMagFull = v; } },
 ];
 
 function fmt(v: number): string {

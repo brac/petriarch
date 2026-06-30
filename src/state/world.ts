@@ -95,6 +95,10 @@ export interface World {
   // food (the long-range REACH for long-distance trade, docs/P4_PLAN.md §P4a).
   readonly scentA: Float32Array;
   readonly scentB: Float32Array;
+  // Stigmergy `trail` field — deposited by committed CARRIERS (carryState ≠ 0) as they cross the gap,
+  // diffused/decayed by tierB/stigmergy.ts. RENDER-ONLY (like claim): nothing steers on it, never on
+  // the GPU. Carrier traffic concentrates into lanes → the trade route glows (docs/P4C_PLAN.md §P4d).
+  readonly trail: Float32Array;
   // Passability (movement-cost) field — static admin/construction substrate, same grid.
   // Default 1 (normal ground); a painted ocean/wall is a huge sentinel cost. Read in the
   // integrate hot path (CPU + GPU) to block/throttle the step; written by the paint tool
@@ -134,6 +138,7 @@ export function createWorld(seed: number): World {
     amity: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     scentA: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     scentB: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
+    trail: new Float32Array(RESOURCE_GRID_W * RESOURCE_GRID_H),
     // Default ground cost is 1, not 0 — fill after allocation (zero would read as a
     // free/super-fast cell to the integrator's throttle).
     passability: ((): Float32Array => {

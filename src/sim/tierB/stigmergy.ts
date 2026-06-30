@@ -10,6 +10,8 @@ import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";
 import { STIGMERGY } from "../../data/stigmergy";
 import { AMITY } from "../../data/amity";
+import { TRAIL } from "../../data/trail";
+import { RESOURCES } from "../../data/resources";
 import { resCellIndex } from "../grid";
 import { RESOURCE_GRID_W, RESOURCE_GRID_H } from "../../data/capacity";
 
@@ -29,8 +31,15 @@ export function stigmergy(world: World): void {
   const sb = world.claimSigB;
   const sc = world.claimSigC;
 
-  // --- deposit: each agent stamps its cell with presence + its signature (claim) ---
+  // --- deposit: each agent stamps its cell with presence + its signature (claim); a committed
+  // CARRIER also stamps the trail channel (P4d) — its path lights up as a caravan route ---
   const d = STIGMERGY.claimDeposit;
+  const td = TRAIL.deposit;
+  const trail = world.trail;
+  const carryState = a.carryState;
+  const capA = world.resourceCap;
+  const capB = world.resourceCapB;
+  const invCap = 1 / RESOURCES.cellCapacity;
   for (let i = 0; i < count; i++) {
     const c = resCellIndex(posX[i]!, posY[i]!);
     const bi = i * GENE_COUNT;
@@ -38,6 +47,16 @@ export function stigmergy(world: World): void {
     sa[c] = sa[c]! + d * genes[bi + GENE.SIG_A]!;
     sb[c] = sb[c]! + d * genes[bi + GENE.SIG_B]!;
     sc[c] = sc[c]! + d * genes[bi + GENE.SIG_C]!;
+    // OUTBOUND/RETURN carriers draw the route — but WEIGHTED BY LOCAL BARRENNESS so it lights up the
+    // DEAD-ZONE crossing and fades in the fed home regions ("trading over a dead zone", P4d). This also
+    // keeps the route gold (gap) spatially clear of the amity gold (regions) so they don't blend.
+    if (carryState[i]! !== 0) {
+      const fed = (capA[c]! + capB[c]!) * invCap;
+      const barren = fed >= 1 ? 0 : 1 - fed;
+      // SQUARED so the route concentrates in the TRULY dead center (the gap) and drops out of the
+      // regions' barren sub-patches between food clumps — a crisp crossing, not a map-wide gold wash.
+      if (barren > 0) trail[c] = trail[c]! + td * barren * barren;
+    }
   }
 
   // --- claim diffuse + decay (identical rates on all four → mean signature preserved) ---
@@ -53,6 +72,8 @@ export function stigmergy(world: World): void {
 
   // --- amity diffuse + decay (deposit is event-driven, in trade.ts) ---
   diffuseDecay(world.amity, AMITY.diffuse, AMITY.decay);
+  // --- trail diffuse + decay (deposited above by committed carriers; render-only, P4d) ---
+  diffuseDecay(trail, TRAIL.diffuse, TRAIL.decay);
   // (supply-scent is STATIC — built once in init.ts buildScent, not evolved per tick.)
 }
 

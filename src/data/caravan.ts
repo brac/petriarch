@@ -12,8 +12,12 @@ export const CARAVAN = {
    *  ignores the provisioning gate (it won't retreat mid-gap), so it actually reaches the far region. */
   commitFrac: 0.7,
   /** OUTBOUND→RETURN: flips once the AWAY good is filled to this fraction (loaded up in the far region)
-   *  — returns with a deliverable surplus, not a token amount. Symmetric to commitFrac. */
-  loadFrac: 0.85,
+   *  — but ONLY while actually in the far region (caravan.ts geo-gate). BAKED 0.40 (loadFrac×travelScent
+   *  sweep, P4c): a smaller required cargo lets carriers turn around sooner with fuel to spare → they
+   *  survive the return (mortality ~0) and complete ~45 deliveries/k (vs 16 at 0.85), with pop AT/ABOVE
+   *  the no-caravan baseline and breed recovered to ~50%. Higher loads carry more per trip but fewer
+   *  complete and more die crossing back — net worse. */
+  loadFrac: 0.40,
   /** Gate reproduction to the home region (home-good scent dominates the cell). Blocks away-region and
    *  mid-gap births → carriers breed only once home. Set false to A/B-test the effect. */
   breedHomeOnly: true,

@@ -56,15 +56,17 @@ function snap(w: World): Omit<M, "trdK" | "loadK" | "delivK"> {
 const ZERO: M = { pop: 0, gapF: 0, outF: 0, carryF: 0, homeF: 0, trdK: 0, loadK: 0, delivK: 0, imbal: 0, breedF: 0 };
 const DEF_COMMIT = CARAVAN.commitFrac;
 const DEF_LOAD = CARAVAN.loadFrac;
+const DEF_TRAVEL = CARAVAN.travelScent;
 const DEF_HOME = CARAVAN.breedHomeOnly;
 const TAIL = 3000;
 
-function runConfig(name: string, commitFrac: number, loadFrac: number, breedHome: boolean, seeds: number[], ticks: number): M & { name: string } {
+function runConfig(name: string, commitFrac: number, loadFrac: number, travelScent: number, breedHome: boolean, seeds: number[], ticks: number): M & { name: string } {
   const acc: M = { ...ZERO };
   let nseed = 0;
   for (const seed of seeds) {
     CARAVAN.commitFrac = commitFrac;
     CARAVAN.loadFrac = loadFrac;
+    CARAVAN.travelScent = travelScent;
     CARAVAN.breedHomeOnly = breedHome;
     const w = createWorld(seed);
     initResourceField(w); seedPopulation(w);
@@ -86,7 +88,7 @@ function runConfig(name: string, commitFrac: number, loadFrac: number, breedHome
     for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! += (m as unknown as Record<string, number>)[k]!;
     nseed++;
   }
-  CARAVAN.commitFrac = DEF_COMMIT; CARAVAN.loadFrac = DEF_LOAD; CARAVAN.breedHomeOnly = DEF_HOME;
+  CARAVAN.commitFrac = DEF_COMMIT; CARAVAN.loadFrac = DEF_LOAD; CARAVAN.travelScent = DEF_TRAVEL; CARAVAN.breedHomeOnly = DEF_HOME;
   const d = nseed || 1;
   for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! /= d;
   return { name, ...acc };
@@ -101,13 +103,16 @@ function fmt(m: M & { name: string }): string {
 const SEEDS = [11, 22];
 const TICKS = 6000;
 
-console.log(`# CARAVAN study (P4c) — loadFrac sweep @ commit0.7 — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
-console.log(`# load/k = OUTBOUND→RETURN flips per 1k (loaded the far good), deliv/k = RETURN→home flips per 1k`);
-console.log(`#   (COMPLETED round trips — the true signal; carry% stock is misleading). WANT deliv/k > 0 and`);
-console.log(`#   rising as loadFrac drops. lower loadFrac = flip to RETURN with a smaller (achievable) load.`);
-const CONFIGS: Array<[string, number, number, boolean]> = [
-  ["load-OFF", 9.0, 0.85, true],   // never commit (control = P4b)
-  ["load0.85", 0.7, 0.85, true],   // current default
-  ["load0.70", 0.7, 0.70, true],
+console.log(`# CARAVAN study (P4c) — loadFrac × travelScent tuning @ commit0.7 — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
+console.log(`# deliv/k = COMPLETED cross-gap round trips per 1k (geo-gated, real). load/k−deliv/k = return mortality.`);
+console.log(`#   WANT: deliv/k UP, return-mortality DOWN, pop toward control baseline, breed recovered, no blur.`);
+const CONFIGS: Array<[string, number, number, number, boolean]> = [
+  // name, commitFrac, loadFrac, travelScent, breedHomeOnly
+  ["OFF(ctrl)", 9.0, 0.85, 1.5, true],   // never commit (control = P4b baseline)
+  ["L.70 T1.5", 0.7, 0.70, 1.5, true],   // current best from the last sweep
+  ["L.55 T1.5", 0.7, 0.55, 1.5, true],
+  ["L.40 T1.5", 0.7, 0.40, 1.5, true],
+  ["L.55 T2.0", 0.7, 0.55, 2.0, true],
+  ["L.40 T2.0", 0.7, 0.40, 2.0, true],
 ];
-for (const [name, cf, lf, bh] of CONFIGS) console.log(fmt(runConfig(name, cf, lf, bh, SEEDS, TICKS)));
+for (const [name, cf, lf, ts, bh] of CONFIGS) console.log(fmt(runConfig(name, cf, lf, ts, bh, SEEDS, TICKS)));

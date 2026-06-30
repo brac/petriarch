@@ -1,6 +1,6 @@
 # Petriarch — Trade Phase 4c: the round trip (carriers, not migrants)
 
-## STATUS (round trip WORKS — mid-tuning) — what's next
+## STATUS (round trip WORKS + tuned/baked — GPU port next) — what's next
 **The round trip is real and honest.** Two bugs found+fixed turned the inert P4c into completing
 caravans:
 1. **Symbolic-only commitment** — flipping to OUTBOUND changed only the scent *target*; the pull
@@ -29,18 +29,39 @@ open but less load-bearing now that deliv/k exists.
 discrete OUTBOUND state + a steer that actually suppresses the home-pull is what crosses the gap. See
 [[petriarch-longrange-fields]].
 
-**NEXT (resume here — brac picked: commit, then tune for net-positive):**
-1. **Tune toward net-positive** (energy-cargo / Fork 2a kept): sweep `loadFrac` lower (0.55/0.40) and
-   `travelScent` (1.5→2.0). Goal: push deliv/k up + cut return-mortality + recover pop toward baseline
-   without society-blur. Fast runs (2 seeds / 6k ticks). Bake `loadFrac`+`travelScent`+`commitFrac`.
-2. **If pop can't recover on energy-cargo** → escalate to **Fork ② = dedicated non-consumed cargo
-   store** (carrier burns survival-fuel only for itself, delivers goods intact — erases the ⅓ return
-   mortality). Bigger build (per-agent `cargo`+`cargoGood`, metabolism carve-out, load/unload, GPU).
-3. **GPU port (4c-4) NOT started** — deferred until CPU behaviour is baked. Pack `carryState`+`homeGood`
-   into one u32 → steer 11→12 bindings (bump device limit), state-branch the scent target + the
-   committed-traveller suppression in `steer.wgsl`, Playwright-verify (seed-sweep the flake). NOTE: the
-   GPU steer is currently NON-PARITY (CPU-only committed-traveller logic). See
+**TUNED + BAKED (net-positive reached on energy-cargo — Fork 2b NOT needed).** `loadFrac`×`travelScent`
+sweep @ commit0.7 (2 seeds / 6k ticks). Baked **`loadFrac` 0.40** (commitFrac 0.7, travelScent 1.5 keep
+defaults). The knee: a *smaller* required cargo lets carriers turn around sooner with fuel to spare →
+they survive the return and complete far more trips:
+
+```
+                pop    out%  load/k deliv/k  trd/k imbal breed%   (return-mortality = load−deliv)
+OFF(ctrl)      8054    0.0      0     0       947  .093  51.3
+L.70 T1.5      7691   34.5     23    16      2057  .081  40.8   ← pop −5%, mortality 7  (was the WIP state)
+L.55 T1.5      8185   19.7     43    40      1686  .078  48.3   ← pop recovers, mortality 3
+L.40 T1.5  →   8218   11.2     45    45      1575  .079  49.5   ← BAKED: mortality 0, pop ≥ baseline, breed ~back
+```
+
+At 0.40: **deliv/k 45** (vs 16 at 0.85), **return-mortality ~0** (load=deliv), **pop 8218 ≥ the 8054
+no-caravan baseline**, breed 49.5% (≈51.3% baseline), imbalance .093→.079 (goods move both ways). The
+−5% trade tax from P4a/b has flipped non-negative while real caravans cross. (Higher loads carry more
+per trip but fewer complete and more die crossing back — net worse; 0.40 wins.) Trade-off noted:
+delivered *flux* = trips×cargo-per-trip, so 0.40's lighter loads partly offset trip count, but imbal is
+flat vs 0.55 so net goods movement holds.
+
+**NEXT (resume here):**
+1. **GPU port (4c-4)** — the only remaining P4c work. CPU behaviour is now baked, so mirror P4a-cpu→gpu.
+   Pack `carryState`+`homeGood` into one u32 → steer 11→12 bindings (bump device limit), state-branch the
+   scent target AND the committed-traveller suppression (zero kin-cohesion + local food when
+   `carryState≠0`, scent at `travelScent`) in `steer.wgsl`, Playwright-verify on the 3090 (seed-sweep the
+   flake). NOTE: GPU steer is currently NON-PARITY (CPU-only committed-traveller logic). See
    [[petriarch-adding-a-gpu-field]].
+2. **P4d** (deferred): render the route — trail stigmergy → glowing caravan lines across the gap (the
+   literal picture of "societies trading over a dead zone"). The headful payoff.
+3. **Open (low priority):** metric flaw #3 (`home%` re-homes at birth) — superseded by deliv/k for the
+   completion question, but if society-blur ever needs measuring, use signature-separation not home%.
+   If a future fork wants *more delivered flux* (not just more trips), revisit Fork ② (non-consumed
+   cargo) — but net-positive is already met without it.
 
 ---
 

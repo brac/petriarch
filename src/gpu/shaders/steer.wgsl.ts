@@ -47,6 +47,7 @@ struct Params {
   maxEnergyPerSize : f32, // store cap per nutrient = SIZE·this (deficit-seeking)
   scentWeight : f32, // long-range supply-scent pull strength (P4a)
   provisionFloor : f32, // P4b: reserve floor below which an agent won't undertake the crossing
+  travelScent : f32, // P4c: committed-traveller scent weight (replaces scentWeight when carrying)
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -62,6 +63,9 @@ struct Params {
 @group(0) @binding(10) var<storage, read>      energyB  : array<f32>;  // nutrient-B store
 // Packed supply-scent: scentA in [0, nCells), scentB in [nCells, 2·nCells) (P4a; static).
 @group(0) @binding(11) var<storage, read>      scent    : array<f32>;
+// Packed carry state per agent (P4c): bits[0:1] = carryState (0 forage,1 return,2 outbound),
+// bit[2] = homeGood (0=A,1=B). Mirrors CPU pools carryState/homeGood; set by tierB/caravan.ts.
+@group(0) @binding(12) var<storage, read>      carry    : array<u32>;
 
 fn hashU32(x: u32) -> u32 {
   var v = x;
@@ -160,12 +164,19 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     } else { dgx = 0.0; dgy = 0.0; }
   }
 
-  // --- supply-scent gradient: long-range pull toward where the LACKED nutrient grows (P4a;
-  // mirrors CPU steer.ts). Climb scentX weighted by deficit of X; scent is a static cone that
-  // reaches across the barren gap where the local food gradient is zero. (DEMAND off skips it.)
+  // --- supply-scent gradient (P4a/b/c): the carry state machine, mirroring CPU steer.ts. carryState
+  // is packed into carry[i]: bits[0:1] = state (0 FORAGE, 1 RETURN, 2 OUTBOUND), bit[2] = home good
+  // (0=A,1=B). FORAGE climbs the LACKED good's scent, deficit-weighted + provisioning-gated (P4b). A
+  // COMMITTED carrier (RETURN/OUTBOUND) climbs ONE good's scent at full gate: OUTBOUND the AWAY good,
+  // RETURN the HOME good (P4c). Scent is a static cone reaching across the gap. (DEMAND off skips it.)
   let onDemand = (P.cogMask & COG_DEMAND) != 0u;
+  let packed = carry[i];
+  let cState = packed & 3u;
+  let homeBit = (packed >> 2u) & 1u;
+  let committed = cState != 0u;
   var dmx = 0.0;
   var dmy = 0.0;
+  var scentGate = 0.0;
   if (onDemand) {
     let gw = i32(P.resGridW);
     let gh = i32(P.resGridH);
@@ -178,8 +189,23 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     let yd = select(cy, cy + 1, cy < gh - 1);
     let rowc = cy * gw;
     let maxStore = genes[i * GENE_COUNT + G_SIZE] * P.maxEnergyPerSize;
-    let sA = clamp(1.0 - energy[i] / maxStore, 0.0, 1.0);
-    let sB = clamp(1.0 - energyB[i] / maxStore, 0.0, 1.0);
+    var sA = 0.0;
+    var sB = 0.0;
+    if (cState == 0u) {
+      // FORAGE: deficit-weighted toward what you lack; gated by reserve (provisioning, P4b).
+      sA = clamp(1.0 - energy[i] / maxStore, 0.0, 1.0);
+      sB = clamp(1.0 - energyB[i] / maxStore, 0.0, 1.0);
+      let reserve = (energy[i] + energyB[i]) / (2.0 * maxStore);
+      scentGate = clamp((reserve - P.provisionFloor) / (1.0 - P.provisionFloor), 0.0, 1.0);
+    } else {
+      // Committed (full gate): OUTBOUND (2) seeks the AWAY good, RETURN (1) the HOME good.
+      let seekHome = cState == 1u;
+      let homeIsA = homeBit == 0u;
+      let seekA = (homeIsA && seekHome) || (!homeIsA && !seekHome);
+      sA = select(0.0, 1.0, seekA);
+      sB = select(1.0, 0.0, seekA);
+      scentGate = 1.0;
+    }
     dmx = (scent[u32(rowc + xr)] - scent[u32(rowc + xl)]) * sA
         + (scent[nCells + u32(rowc + xr)] - scent[nCells + u32(rowc + xl)]) * sB;
     dmy = (scent[u32(yd * gw + cx)] - scent[u32(yu * gw + cx)]) * sA
@@ -197,21 +223,21 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   // --- weighted blend (Genes × level; mask gates each term, wander unscaled) ---
   let lvl = P.cogLevel;
   let bi = i * GENE_COUNT;
-  let kc = select(0.0, genes[bi + G_KC] * lvl, (P.cogMask & COG_KIN) != 0u);
+  // A COMMITTED carrier (carryState≠0) becomes a lone traveller: kin-cohesion + local foraging are
+  // suppressed so it detaches from the home pack and beelines on the scent across the gap (P4c).
+  let kc = select(0.0, genes[bi + G_KC] * lvl, ((P.cogMask & COG_KIN) != 0u) && !committed);
   let se = select(0.0, genes[bi + G_SE] * lvl, (P.cogMask & COG_SEP) != 0u);
-  let ra = select(0.0, genes[bi + G_RA] * lvl, onFood);
+  let ra = select(0.0, genes[bi + G_RA] * lvl, onFood && !committed);
   let ta = select(0.0, genes[bi + G_TA] * lvl, (P.cogMask & COG_AVOID) != 0u);
   // danger descent shares THREAT_AVOID (fearfulness); aggressive lineages evolve low
   // THREAT_AVOID → ignore death zones.
   let da = select(0.0, genes[bi + G_TA] * lvl, onDanger);
-  // scent shares RESOURCE_ATTRACT (foraging drive) × level × scentWeight × provisioning gate (P4b:
-  // only a well-fed agent crosses), mirrors CPU steer.ts.
+  // scent shares RESOURCE_ATTRACT (foraging drive) × level. FORAGE: × scentWeight × provisioning gate
+  // (P4b). Committed: × travelScent (scentGate is 1) so the lone traveller dominates (P4c). Mirrors CPU.
   var dm = 0.0;
   if (onDemand) {
-    let maxStore = genes[bi + G_SIZE] * P.maxEnergyPerSize;
-    let reserve = (energy[i] + energyB[i]) / (2.0 * maxStore);
-    let gate = clamp((reserve - P.provisionFloor) / (1.0 - P.provisionFloor), 0.0, 1.0);
-    dm = genes[bi + G_RA] * lvl * P.scentWeight * gate;
+    let w = select(P.scentWeight * scentGate, P.travelScent, committed);
+    dm = genes[bi + G_RA] * lvl * w;
   }
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 

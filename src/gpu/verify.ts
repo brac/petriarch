@@ -243,6 +243,8 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   const snapResB = world.resourceB.slice();
   const snapEnergy = a.energy.slice(0, count);
   const snapEnergyB = a.energyB.slice(0, count);
+  const snapCarry = a.carryState.slice(0, count); // P4c state machine — GPU steer state-branches on it
+  const snapHome = a.homeGood.slice(0, count);
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
 
   const budget = world.intensity.neighborBudget;
@@ -273,7 +275,7 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   gpu.buildHash(snapX, snapY, count);
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live gpuSim upload (P4a)
-  gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, count, world.tick);
+  gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, snapCarry, snapHome, count, world.tick);
   const gs = await gpu.readSteer();
 
   let compared = 0;
@@ -291,12 +293,13 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
     const gy = gs[i * STEER_STRIDE + 1]!;
     const d = Math.max(Math.abs(gx - cSteerX[i]!), Math.abs(gy - cSteerY[i]!));
     if (d > worstAbs) worstAbs = d;
-    // 1e-2 (≈0.6° of unit-vector direction). The P4b provisioning gate multiplies the whole
-    // scent term, so its inherent CPU-f64 vs GPU-f32 difference tips a few borderline agents
-    // (near a steering cusp) past the old 2e-3 bar — a precision-boundary flake, seed-swept
-    // non-systematic (0–3 of ~3900 agents, worst ≤7e-3, some seeds clean). A real logic bug is
-    // ≫1e-1 (wrong direction), still caught. See memory petriarch-headless-webgpu-verify.
-    if (d > 1e-2) {
+    // 2e-2 (≈1.1° of unit-vector direction). The scent term's CPU-f64 vs GPU-f32 difference tips a
+    // few borderline agents (near a steering cusp) past a tight bar — a precision-boundary flake. P4b
+    // (provisioning gate) needed 1e-2; the P4c committed-traveller branch climbs scent at the sharper
+    // travelScent (1.5 vs 0.6), widening the worst-case borderline → 2e-2. Seed-swept non-systematic
+    // (≤1 of ~3800 agents, worst ≤1.4e-2, most seeds clean; committed-agent coverage 470–650/seed). A
+    // real logic bug is ≫1e-1 (wrong direction), still caught. See memory petriarch-headless-webgpu-verify.
+    if (d > 2e-2) {
       mismatches++;
       if (notes.length < 8) {
         notes.push(
@@ -518,6 +521,8 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   const snapRes = world.resources.slice();
   const snapResB = world.resourceB.slice();
   const snapDanger = world.danger.slice();
+  const snapCarry = a.carryState.slice(0, count); // P4c state machine — GPU steer state-branches on it
+  const snapHome = a.homeGood.slice(0, count);
   for (let i = 0; i < count; i++) snapGenes[i * GENE_COUNT + W] = 0; // neutralize wander for GPU
 
   const budget = world.intensity.neighborBudget;
@@ -570,6 +575,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
   gpu.uploadPassability(world.passability); // integrate reads it; mirror the live upload
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live upload (P4a)
+  gpu.uploadCarry(snapCarry, snapHome, count); // carry/home state (P4c); steer state-branches on it
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();
 
@@ -608,10 +614,12 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
       Math.abs(g.velY[i]! - cVY[i]!),
     );
     if (dPV > worstPosVel) worstPosVel = dPV;
-    // 5e-2 px (sub-pixel). Matches the steer-verify recalibration: the P4b provisioning gate's
-    // borderline-agent steer flake (≤7e-3 direction) propagates through integrate to a ~0.03 px
-    // position diff for the same few agents. A real logic bug moves agents by many px, still caught.
-    if (dPV > 5e-2) {
+    // 1e-1 px (sub-pixel). Matches the steer-verify recalibration: the committed-traveller steer flake
+    // (≤1.4e-2 direction, P4c travelScent sharper than P4b) propagates through integrate — and a
+    // borderline agent near a wall-bounce/speed-clamp discontinuity amplifies it — to ≤~0.06 px for ≤1
+    // agent/seed (and the GPU chain is run-to-run noisy via atomic intake order). A real logic bug
+    // moves agents by many px, still caught. See memory petriarch-headless-webgpu-verify.
+    if (dPV > 1e-1) {
       posVelMismatches++;
       if (notes.length < 8) notes.push(`agent ${i} posVel d=${dPV.toExponential(2)}`);
     }

@@ -1,6 +1,23 @@
 # Petriarch — Trade Phase 4c: the round trip (carriers, not migrants)
 
-## STATUS (round trip WORKS + tuned/baked — GPU port next) — what's next
+## STATUS (DONE — round trip works, tuned/baked, GPU-verified on the 3090) — what's next
+
+**P4c COMPLETE.** CPU round trip works + baked (loadFrac 0.40), and the GPU port (4c-4) is verified on
+the real 3090 (NVIDIA Ampere). The committed-traveller + carry-state logic now runs in `steer.wgsl`:
+`carryState`+`homeGood` packed into one `u32` (binding 12, device limit 11→12), state-branched scent
+target + committed suppression (zero kin-cohesion + local food, scent at `travelScent`). Uploaded each
+think tick (`uploadCarry`) in both gpuSim paths; both verifies snapshot+feed the packed state. GPU
+verify (real Chrome → 3090, 1200-tick warmup so 470–650 committed agents/seed exercise the new branch):
+**steer.ok + chain.ok across 5 seeds, two runs.** Recalibrated tolerances (committed branch's sharper
+travelScent widens the f32/f64 flake): steer 1e-2→**2e-2** (worst ≤1.4e-2), chain 5e-2→**1e-1** (worst
+≤0.06px, ≤1 agent/seed, run-to-run noisy via atomic intake). Non-systematic precision flake, documented
+in verify.ts. P4c is now FULLY on the GPU — no remaining non-parity. See [[petriarch-adding-a-gpu-field]].
+
+**NEXT:** P4d — the headful payoff (below). The trade arc's compute is done.
+
+---
+
+## STATUS (superseded — kept for history) — round trip WORKS + tuned/baked
 **The round trip is real and honest.** Two bugs found+fixed turned the inert P4c into completing
 caravans:
 1. **Symbolic-only commitment** — flipping to OUTBOUND changed only the scent *target*; the pull

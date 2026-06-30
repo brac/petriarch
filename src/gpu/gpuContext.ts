@@ -25,6 +25,7 @@ import { MORPH } from "../data/morphology";
 import { COGNITION } from "../data/cognition";
 import { STIGMERGY } from "../data/stigmergy";
 import { SCENT } from "../data/scent";
+import { CARAVAN } from "../data/caravan";
 import { PASSABILITY } from "../data/passability";
 import { TICK_DT } from "../core/time";
 
@@ -113,12 +114,14 @@ export class GpuContext {
   private readonly resourcesBBuf: GPUBuffer; // nutrient-B field (metab depletes, steer reads)
   private readonly dangerBuf: GPUBuffer;
   private readonly scentBuf: GPUBuffer; // packed static supply-scent [scentA | scentB] (P4a)
+  private readonly carryBuf: GPUBuffer; // packed per-agent carry/home state (P4c); steer reads it
+  private readonly carryHost: Uint32Array; // scratch for packing carryState|homeGood (zero per-tick alloc)
   private readonly steerParamsBuf: GPUBuffer;
   private readonly steerOutBuf: GPUBuffer;
   private readonly steerOutRead: GPUBuffer;
   private readonly steerBindGroup: GPUBindGroup;
   private readonly pipeSteer: GPUComputePipeline;
-  private readonly steerParamsHost = new ArrayBuffer(64); // 13 used slots (P4b +provisionFloor) → 64-aligned
+  private readonly steerParamsHost = new ArrayBuffer(64); // 14 used slots (P4c +travelScent) → 64-aligned
   private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
   private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
 
@@ -270,6 +273,9 @@ export class GpuContext {
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
     // Packed supply-scent: 2×grid (scentA | scentB), static — uploaded once (P4a).
     this.scentBuf = buf(2 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    // Packed carry/home state, one u32 per agent (P4c); re-uploaded each think tick (Tier B mutates it).
+    this.carryBuf = buf(capacity * u32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.carryHost = new Uint32Array(capacity);
     this.steerParamsBuf = buf(64, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
@@ -290,6 +296,7 @@ export class GpuContext {
         { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeSteer = dev.createComputePipeline({
@@ -311,6 +318,7 @@ export class GpuContext {
         { binding: 9, resource: { buffer: this.energyBuf } },
         { binding: 10, resource: { buffer: this.energyBBuf } },
         { binding: 11, resource: { buffer: this.scentBuf } },
+        { binding: 12, resource: { buffer: this.carryBuf } },
       ],
     });
 
@@ -454,6 +462,7 @@ export class GpuContext {
     this.steerParamsF32[10] = SIM.maxEnergyPerSize; // deficit-seeking: store cap per nutrient
     this.steerParamsF32[11] = SCENT.weight; // long-range supply-scent pull (P4a)
     this.steerParamsF32[12] = SCENT.provisionFloor; // P4b provisioning gate floor
+    this.steerParamsF32[13] = CARAVAN.travelScent; // P4c committed-traveller scent weight
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 
@@ -603,6 +612,8 @@ export class GpuContext {
     danger: Float32Array,
     energy: Float32Array,
     energyB: Float32Array,
+    carryState: Uint8Array,
+    homeGood: Uint8Array,
     count: number,
     seed: number,
   ): void {
@@ -610,6 +621,7 @@ export class GpuContext {
     this.queue.writeBuffer(this.resourcesBuf, 0, resources as Float32Array<ArrayBuffer>, 0, RES_CELLS);
     this.queue.writeBuffer(this.resourcesBBuf, 0, resB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
     this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    this.uploadCarry(carryState, homeGood, count);
     if (count > 0) {
       this.queue.writeBuffer(this.energyBuf, 0, energy as Float32Array<ArrayBuffer>, 0, count);
       this.queue.writeBuffer(this.energyBBuf, 0, energyB as Float32Array<ArrayBuffer>, 0, count);
@@ -813,6 +825,15 @@ export class GpuContext {
     const f32 = Float32Array.BYTES_PER_ELEMENT;
     this.queue.writeBuffer(this.scentBuf, 0, scentA as Float32Array<ArrayBuffer>, 0, RES_CELLS);
     this.queue.writeBuffer(this.scentBuf, RES_CELLS * f32, scentB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Pack carryState (0/1/2) + homeGood (0/1) into one u32 per agent and upload (P4c; steer reads it).
+   *  Tier B (caravan.ts) mutates these each tick, so call before each think-tick steer dispatch. */
+  uploadCarry(carryState: Uint8Array, homeGood: Uint8Array, count: number): void {
+    if (count <= 0) return;
+    const packed = this.carryHost;
+    for (let i = 0; i < count; i++) packed[i] = carryState[i]! | (homeGood[i]! << 2);
+    this.queue.writeBuffer(this.carryBuf, 0, packed as Uint32Array<ArrayBuffer>, 0, count);
   }
 
   /** Upload the passability field (read-only; integrate blocks/throttles the step). */

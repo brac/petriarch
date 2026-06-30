@@ -21,7 +21,7 @@ const TAU = Math.PI * 2;
 
 export function steer(world: World): void {
   const a = world.agents;
-  const { posX, posY, energy, energyB, genes, steerX, steerY, count } = a;
+  const { posX, posY, energy, energyB, genes, steerX, steerY, carryState, homeGood, count } = a;
   const res = world.resources;
   const resB = world.resourceB;
   const danger = world.danger;
@@ -169,13 +169,14 @@ export function steer(world: World): void {
       }
     }
 
-    // --- supply-scent gradient: long-range pull toward where the nutrient the agent LACKS grows
-    // (P4a). Climb scentX weighted by the DEFICIT of X — so a B-deficient agent climbs scentB toward
-    // the B-region across the gap. The scent is a widely-diffused STATIC beacon of food geography, so
-    // this 4-neighbour read points across the barren gap where the local food gradient is zero (the
-    // long-range version of the deficit-seeking food term). (DEMAND off => skip the samples.) ---
+    // --- supply-scent gradient (P4a/b/c). State machine (carryState): FORAGE → climb the LACKED
+    // good's scent, deficit-weighted + provisioning-gated (only the well-fed set off, P4b). RETURN →
+    // climb the HOME good's scent at full strength (a committed carrier heads home with its cargo,
+    // P4c). The cone is a widely-smooth STATIC beacon, so this 4-neighbour read points across the
+    // barren gap where the local food gradient is zero. (DEMAND off => skip the samples.) ---
     let dmx = 0;
     let dmy = 0;
+    let scentGate = 0;
     if (onDemand) {
       let cx = (xi / RES_CELL_W) | 0;
       if (cx < 0) cx = 0;
@@ -188,13 +189,28 @@ export function steer(world: World): void {
       const yu = cy > 0 ? cy - 1 : cy;
       const yd = cy < gh - 1 ? cy + 1 : cy;
       const rowc = cy * gw;
-      // deficit: how short the agent is on each nutrient (0..1) — climb the scent of what you lack.
-      let sA = 1 - energy[i]! / maxStore;
-      if (sA < 0) sA = 0;
-      else if (sA > 1) sA = 1;
-      let sB = 1 - energyB[i]! / maxStore;
-      if (sB < 0) sB = 0;
-      else if (sB > 1) sB = 1;
+      let sA: number;
+      let sB: number;
+      if (carryState[i]! === 0) {
+        // FORAGE: deficit-weighted toward what you lack; gated by reserve (provisioning, P4b).
+        sA = 1 - energy[i]! / maxStore;
+        if (sA < 0) sA = 0;
+        else if (sA > 1) sA = 1;
+        sB = 1 - energyB[i]! / maxStore;
+        if (sB < 0) sB = 0;
+        else if (sB > 1) sB = 1;
+        const reserve = (energy[i]! + energyB[i]!) / (2 * maxStore);
+        const g = (reserve - provFloor) / provSpan;
+        scentGate = g < 0 ? 0 : g > 1 ? 1 : g;
+      } else {
+        // Committed crossing (full gate): OUTBOUND (2) climbs the AWAY good's scent, RETURN (1) climbs
+        // the HOME good's scent. seekA = does this leg seek nutrient A?
+        const seekHome = carryState[i]! === 1;
+        const seekA = (homeGood[i]! === 0) === seekHome;
+        sA = seekA ? 1 : 0;
+        sB = seekA ? 0 : 1;
+        scentGate = 1;
+      }
       dmx = (scA[rowc + xr]! - scA[rowc + xl]!) * sA + (scB[rowc + xr]! - scB[rowc + xl]!) * sB;
       dmy = (scA[yd * gw + cx]! - scA[yu * gw + cx]!) * sA + (scB[yd * gw + cx]! - scB[yu * gw + cx]!) * sB;
       const l = Math.sqrt(dmx * dmx + dmy * dmy);
@@ -221,16 +237,9 @@ export function steer(world: World): void {
     // danger descent shares the THREAT_AVOID gene (fearfulness); aggressive lineages
     // evolve low THREAT_AVOID → ignore death zones (the doc's aggression-gating).
     const da = onDanger ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
-    // scent shares the RESOURCE_ATTRACT gene (foraging drive), scaled by SCENT.weight (P4a) and by a
-    // PROVISIONING gate (P4b): only a well-fed agent crosses — gate ramps 0→1 from the reserve floor
-    // to full stores, so a starving agent ignores the far scent and forages locally (survives).
-    let dm = 0;
-    if (onDemand) {
-      const reserve = (energy[i]! + energyB[i]!) / (2 * maxStore);
-      let gate = (reserve - provFloor) / provSpan; // divide (match the GPU op exactly, not ×reciprocal)
-      gate = gate < 0 ? 0 : gate > 1 ? 1 : gate;
-      dm = genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight * gate;
-    }
+    // scent shares the RESOURCE_ATTRACT gene (foraging drive) × SCENT.weight × the state's scentGate
+    // (computed above: forage = provisioning ramp P4b; return = 1, a committed carrier P4c).
+    const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight * scentGate : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
     let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;

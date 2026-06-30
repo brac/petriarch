@@ -18,6 +18,7 @@ import { resources } from "./tierB/resources";
 import { stigmergy } from "./tierB/stigmergy";
 import { conflict } from "./tierB/conflict";
 import { trade } from "./tierB/trade";
+import { caravan } from "./tierB/caravan";
 import { reproduce } from "./tierB/reproduce";
 import { death } from "./tierB/death";
 import { drainGod } from "./tierB/god";
@@ -40,6 +41,7 @@ export function simStep(world: World): void {
 
   integrate(world); // 4
   metabolism(world); // 5
+  caravan(world); // 5b — carry/return state machine (reads updated pos+energy; steer reads its flag)
   conflict(world, didThink); // 6
   trade(world, didThink); // 6b — cooperative barter at non-hostile complementary encounters
   reproduce(world); // 7

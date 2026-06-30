@@ -7,6 +7,7 @@ import type { Rng } from "../core/rng";
 import { GENE, GENE_COUNT, GENE_RANGE } from "../data/genome";
 import { SIM } from "../data/sim";
 import { RESOURCES } from "../data/resources";
+import { homeGoodAt } from "./tierB/caravan";
 import {
   WORLD_W,
   WORLD_H,
@@ -201,6 +202,8 @@ export function seedPopulation(world: World): void {
     const maxE = genes[base + GENE.SIZE]! * SIM.maxEnergyPerSize;
     agents.energy[i] = maxE * SIM.startEnergyFrac;
     agents.energyB[i] = maxE * SIM.startEnergyFrac;
+    // Home region (P4c) = where this founder is born (dominant scent at its cell).
+    agents.homeGood[i] = homeGoodAt(world, x, y);
   }
 
   // Build the hash so the first think tick has neighbors.

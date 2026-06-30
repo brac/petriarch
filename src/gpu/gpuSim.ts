@@ -24,6 +24,7 @@ import { resources } from "../sim/tierB/resources";
 import { stigmergy } from "../sim/tierB/stigmergy";
 import { conflict } from "../sim/tierB/conflict";
 import { trade } from "../sim/tierB/trade";
+import { caravan } from "../sim/tierB/caravan";
 import { reproduce } from "../sim/tierB/reproduce";
 import { death } from "../sim/tierB/death";
 import { drainGod } from "../sim/tierB/god";
@@ -81,6 +82,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   // cache), so the hash must be current.
   world.hash.build(a.posX, a.posY, count); // 6
   const tHash = performance.now();
+  caravan(world); // 6b — carry/return state machine (on the read-back energy + positions)
   conflict(world, false); // 7
   trade(world, false); // 7b — cooperative barter (Tier B, CPU; own neighbor query like conflict)
   const tConflict = performance.now();
@@ -116,6 +118,7 @@ export class GpuPipeline {
     const tHash0 = performance.now();
     world.hash.build(a.posX, a.posY, a.count);
     const tHash = performance.now();
+    caravan(world);
     conflict(world, false);
     trade(world, false);
     const tConflict = performance.now();

@@ -11,7 +11,10 @@
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT, GENE_RANGE } from "../../data/genome";
 import { SIM } from "../../data/sim";
+import { CARAVAN } from "../../data/caravan";
 import { WORLD_W, WORLD_H, RES_CELL_W, RES_CELL_H, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../../data/capacity";
+import { resCellIndex } from "../grid";
+import { homeGoodAt } from "./caravan";
 
 export function reproduce(world: World): void {
   const a = world.agents;
@@ -44,6 +47,18 @@ export function reproduce(world: World): void {
     const litter = Math.max(1, Math.round(genes[bi + GENE.FERTILITY]!));
     const px = posX[i]!;
     const py = posY[i]!;
+
+    // Breed-only-at-home (P4c): a carrier topped up on the away good would otherwise breed
+    // mid-journey in the wrong region. Require the parent's HOME good's scent to dominate its cell
+    // (it's in its home region) — blocks away-region + mid-gap births and keeps each lineage breeding
+    // in its own territory (reinforces society-distinctness). Reads the field, not the genome.
+    if (CARAVAN.breedHomeOnly) {
+      const c = resCellIndex(px, py);
+      const home = a.homeGood[i]!;
+      const homeScent = home === 0 ? world.scentA[c]! : world.scentB[c]!;
+      const awayScent = home === 0 ? world.scentB[c]! : world.scentA[c]!;
+      if (awayScent > homeScent) continue; // not in home region → defer breeding
+    }
 
     // Environmental food-gate: don't breed into a food desert — offspring spawn within ~1
     // cell (birthJitter) and would just starve at birth (the wasteful born→die churn). Sum
@@ -87,6 +102,7 @@ export function reproduce(world: World): void {
       else if (jy > WORLD_H) jy = WORLD_H;
       const k = a.spawn(jx, jy, perChild, lin, perChild);
       if (k < 0) break;
+      a.homeGood[k] = homeGoodAt(world, jx, jy); // P4c: home = the region the offspring is born in
       const bk = k * GENE_COUNT;
       for (let g = 0; g < GENE_COUNT; g++) {
         const range = GENE_RANGE[g]!;

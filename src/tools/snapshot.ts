@@ -17,7 +17,7 @@ import { GENE_COUNT } from "../data/genome";
 import { MAX_AGENTS, RESOURCE_GRID_W, RESOURCE_GRID_H } from "../data/capacity";
 
 const MAGIC = 0x50455452; // "PETR"
-const VERSION = 8; // v2:+claim; v3:+danger; v4:+passability; v5:+nutrient B fields; v6:+energyB store; v7:+amity; v8:+scentA/B
+const VERSION = 9; // v2:+claim; v3:+danger; v4:+passability; v5:+nutrient B; v6:+energyB; v7:+amity; v8:+scentA/B; v9:+carryState/homeGood
 const GRID_LEN = RESOURCE_GRID_W * RESOURCE_GRID_H;
 
 // Meta scalar slots (one Float64 each; holds uint32s and the sim clock exactly).
@@ -46,10 +46,11 @@ export function serializeWorld(world: World): ArrayBuffer {
   //   meta(f64×META_LEN) | F32_COUNT×f32[n] | lineageId i32[n] | genes f32[n*gc]
   //   | resources f32[GRID] | resourceCap f32[GRID] | resourceB f32[GRID] | resourceCapB f32[GRID]
   //   | claimMag f32[GRID] | claimSigA/B/C f32[GRID] | danger f32[GRID] | amity f32[GRID]
-  //   | scentA f32[GRID] | scentB f32[GRID] | passability f32[GRID] | alive u8[n]
+  //   | scentA f32[GRID] | scentB f32[GRID] | passability f32[GRID]
+  //   | alive u8[n] | carryState u8[n] | homeGood u8[n]   (the three u8 arrays go last)
   const GRID_FIELDS = 13; // the 8 below + resourceB + resourceCapB + amity + scentA + scentB
   const bytes =
-    META_LEN * 8 + F32_COUNT * n * 4 + n * 4 + n * gc * 4 + GRID_LEN * 4 * GRID_FIELDS + n * 1;
+    META_LEN * 8 + F32_COUNT * n * 4 + n * 4 + n * gc * 4 + GRID_LEN * 4 * GRID_FIELDS + n * 3;
   const buf = new ArrayBuffer(bytes);
   const u8 = new Uint8Array(buf);
   let off = 0;
@@ -99,6 +100,8 @@ export function serializeWorld(world: World): ArrayBuffer {
   put(world.scentB);
   put(world.passability);
   put(a.alive.subarray(0, n));
+  put(a.carryState.subarray(0, n));
+  put(a.homeGood.subarray(0, n));
 
   return buf;
 }
@@ -143,6 +146,10 @@ export function restoreWorld(world: World, buf: ArrayBuffer): void {
   world.scentB.set(readF32(GRID_LEN));
   world.passability.set(readF32(GRID_LEN));
   a.alive.set(new Uint8Array(buf, off, n));
+  off += n;
+  a.carryState.set(new Uint8Array(buf, off, n));
+  off += n;
+  a.homeGood.set(new Uint8Array(buf, off, n));
   off += n;
 
   a.count = n;

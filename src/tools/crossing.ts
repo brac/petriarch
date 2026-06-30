@@ -1,45 +1,48 @@
-// CROSSING study (P4a — temporary research harness; run with vite-node like the others). Question:
-// does the long-range DEMAND field (steer climbs demandX weighted by surplus of X) make agents
-// actually CROSS the barren inter-region gap — producing traffic in the dead zone and trade/breeding
-// across distance — without collapsing the population into a stampede or a merged monoculture?
-// (docs/P4_PLAN.md §P4a.) Compares demand-OFF (mask bit cleared) vs demand-ON at a few weights.
+// CARAVAN study (P4c — round trip; temporary research harness, run with vite-node). Question: does the
+// carry/return state machine (+ breed-only-at-home) turn crossers into CARRIERS that round-trip and
+// deliver the far good home — so trade FLOURISHES — WITHOUT the two societies blurring into one
+// (migration) or carriers oscillating to death? (docs/P4C_PLAN.md §P4c.)
 //
-// Imports are project-relative so the data objects are the SINGLE shared instance the sim reads live.
+// Compares P4b-base (no return: loadFrac > 1 so nobody flips to return; breed anywhere) vs carry
+// (return on, breed anywhere) vs carry+home (return on + breed-only-at-home = full P4c).
 //
 // Metrics (live population, tail-averaged over seeds):
-//   pop       population (collapse / stampede guard)
-//   gap%      fraction of agents standing in the barren gap band — the DIRECT crossing signal
-//             (≈0 without demand: nothing draws life into the foodless middle)
-//   left/rt%  fraction in the A-region (left) / B-region (right) — should stay BALANCED (a crossing
-//             economy), not collapse to one side (a stampede/migration that merges the societies)
-//   trd/k     barter swaps per 1000 ticks — does the crossing produce trade
-//   imbal     mean |energyA−energyB|/maxE — demand should LOWER it (complements meet → rebalance)
-//   breed%    fraction with BOTH stores above repro threshold (the payoff channel)
+//   pop       population (collapse / oscillate-to-death guard)
+//   gap%      fraction standing in the barren gap — shuttle traffic
+//   carry%    fraction in RETURN state — are carriers forming
+//   home%     fraction standing in their HOME region (home-good scent dominates their cell) — society
+//             distinctness: HIGH = lineages stay on their own side (trade), LOW = blurred (migration)
+//   trd/k     barter swaps per 1000 ticks (delivery shows up as more trade at home)
+//   imbal     mean |eA−eB|/maxE — lower = stores better balanced (goods reaching both sides)
+//   breed%    fraction with BOTH stores above repro threshold
 
 import { createWorld, type World } from "../state/world";
 import { initResourceField, seedPopulation } from "../sim/init";
 import { simStep } from "../sim/step";
 import { GENE, GENE_COUNT } from "../data/genome";
 import { SIM } from "../data/sim";
-import { SCENT } from "../data/scent";
-import { COG, COG_ALL, COGNITION } from "../data/cognition";
+import { CARAVAN } from "../data/caravan";
 import { WORLD_W } from "../data/capacity";
+import { resCellIndex } from "../sim/grid";
 
-// Gap band (fractions of WORLD_W): regions sit at ~0.24 / ~0.76 with spread ~0.19, so the barren
-// middle is ~[0.43, 0.57]. Left region < 0.43, right region > 0.57.
-const GAP_LO = 0.43 * WORLD_W;
-const GAP_HI = 0.57 * WORLD_W;
+const GAP_LO = 0.43 * WORLD_W, GAP_HI = 0.57 * WORLD_W; // barren middle (regions ~0.24/0.76, spread ~0.19)
 
-interface M { pop: number; gapF: number; leftF: number; rightF: number; trdK: number; imbal: number; breedF: number }
+interface M { pop: number; gapF: number; outF: number; carryF: number; homeF: number; trdK: number; imbal: number; breedF: number }
 
 function snap(w: World): Omit<M, "trdK"> {
   const a = w.agents; const g = a.genes; const n = a.count;
-  let gap = 0, left = 0, right = 0, breed = 0, imb = 0;
+  const sa = w.scentA, sb = w.scentB;
+  let gap = 0, out = 0, carry = 0, home = 0, breed = 0, imb = 0;
   for (let i = 0; i < n; i++) {
     const x = a.posX[i]!;
-    if (x < GAP_LO) left++;
-    else if (x > GAP_HI) right++;
-    else gap++;
+    if (x >= GAP_LO && x <= GAP_HI) gap++;
+    if (a.carryState[i]! === 2) out++;       // OUTBOUND (committed, going for the away good)
+    if (a.carryState[i]! === 1) carry++;     // RETURN (loaded, heading home)
+    // home? the agent's home-good scent dominates its cell.
+    const c = resCellIndex(x, a.posY[i]!);
+    const hs = a.homeGood[i]! === 0 ? sa[c]! : sb[c]!;
+    const as = a.homeGood[i]! === 0 ? sb[c]! : sa[c]!;
+    if (hs >= as) home++;
     const bi = i * GENE_COUNT;
     const maxE = g[bi + GENE.SIZE]! * SIM.maxEnergyPerSize;
     const eA = a.energy[i]!, eB = a.energyB[i]!;
@@ -47,22 +50,20 @@ function snap(w: World): Omit<M, "trdK"> {
     const thr = g[bi + GENE.REPRO_THRESHOLD]! * maxE;
     if (eA >= thr && eB >= thr) breed++;
   }
-  return { pop: n, gapF: gap / n, leftF: left / n, rightF: right / n, imbal: imb / n, breedF: breed / n };
+  return { pop: n, gapF: gap / n, outF: out / n, carryF: carry / n, homeF: home / n, imbal: imb / n, breedF: breed / n };
 }
 
-const ZERO: M = { pop: 0, gapF: 0, leftF: 0, rightF: 0, trdK: 0, imbal: 0, breedF: 0 };
-const DEF_MASK = COGNITION.mask;
-const DEF_WEIGHT = SCENT.weight;
-const DEF_PROV = SCENT.provisionFloor;
+const ZERO: M = { pop: 0, gapF: 0, outF: 0, carryF: 0, homeF: 0, trdK: 0, imbal: 0, breedF: 0 };
+const DEF_COMMIT = CARAVAN.commitFrac;
+const DEF_HOME = CARAVAN.breedHomeOnly;
 const TAIL = 3000;
 
-function runConfig(name: string, demandOn: boolean, weight: number, provFloor: number, seeds: number[], ticks: number): M & { name: string } {
+function runConfig(name: string, commitFrac: number, breedHome: boolean, seeds: number[], ticks: number): M & { name: string } {
   const acc: M = { ...ZERO };
   let nseed = 0;
   for (const seed of seeds) {
-    COGNITION.mask = demandOn ? COG_ALL : (COG_ALL & ~COG.DEMAND);
-    SCENT.weight = weight;
-    SCENT.provisionFloor = provFloor;
+    CARAVAN.commitFrac = commitFrac;
+    CARAVAN.breedHomeOnly = breedHome;
     const w = createWorld(seed);
     initResourceField(w); seedPopulation(w);
     const a = w.agents;
@@ -81,7 +82,7 @@ function runConfig(name: string, demandOn: boolean, weight: number, provFloor: n
     for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! += (m as unknown as Record<string, number>)[k]!;
     nseed++;
   }
-  COGNITION.mask = DEF_MASK; SCENT.weight = DEF_WEIGHT; SCENT.provisionFloor = DEF_PROV;
+  CARAVAN.commitFrac = DEF_COMMIT; CARAVAN.breedHomeOnly = DEF_HOME;
   const d = nseed || 1;
   for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! /= d;
   return { name, ...acc };
@@ -89,21 +90,21 @@ function runConfig(name: string, demandOn: boolean, weight: number, provFloor: n
 
 function fmt(m: M & { name: string }): string {
   const p = (v: number, w: number, d = 1): string => (isNaN(v) ? "NaN" : v.toFixed(d)).padStart(w);
-  return `${m.name.padEnd(12)} pop${p(m.pop, 6, 0)} | gap${p(m.gapF * 100, 5)}% left${p(m.leftF * 100, 5)}% right${p(m.rightF * 100, 5)}% | ` +
+  return `${m.name.padEnd(12)} pop${p(m.pop, 6, 0)} | gap${p(m.gapF * 100, 4)}% out${p(m.outF * 100, 5)}% carry${p(m.carryF * 100, 5)}% home${p(m.homeF * 100, 5)}% | ` +
     `trd/k${p(m.trdK, 6, 0)} imbal${p(m.imbal, 6, 3)} breed${p(m.breedF * 100, 5)}%`;
 }
 
 const SEEDS = [11, 22, 33];
 const TICKS = 8000;
 
-console.log(`# CROSSING study (P4b — provisioning gate) — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
-console.log(`# Provisioning gates the scent pull by total energy reserve (only well-fed agents cross). WANT vs the`);
-console.log(`#   no-provisioning baseline (prov0.0): pop + breed RECOVER toward demand-OFF while gap traffic + trade HOLD.`);
-const CONFIGS: Array<[string, boolean, number, number]> = [
-  ["demand-OFF", false, 0, 0],
-  ["prov0.0-w.6", true, 0.6, 0.0], // no provisioning = raw P4a
-  ["prov0.3-w.6", true, 0.6, 0.3],
-  ["prov0.45-w.6", true, 0.6, 0.45],
-  ["prov0.6-w.6", true, 0.6, 0.6],
+console.log(`# CARAVAN study (P4c) — commitFrac sweep — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
+console.log(`# out% = OUTBOUND (committed, going), carry% = RETURN (loaded, heading home). WANT: carry% > 0 (round`);
+console.log(`#   trips COMPLETE — agents survive to load + return), not just out% (commit then die). Higher commitFrac`);
+console.log(`#   = fuller before setting off. pop/breed healthy. commit 9.0 = never commit (control).`);
+const CONFIGS: Array<[string, number, boolean]> = [
+  ["commit-OFF", 9.0, true],   // never commit (control = P4b)
+  ["commit0.7", 0.7, true],
+  ["commit0.85", 0.85, true],
+  ["commit0.95", 0.95, true],
 ];
-for (const [name, on, wt, pf] of CONFIGS) console.log(fmt(runConfig(name, on, wt, pf, SEEDS, TICKS)));
+for (const [name, cf, bh] of CONFIGS) console.log(fmt(runConfig(name, cf, bh, SEEDS, TICKS)));

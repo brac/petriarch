@@ -46,6 +46,12 @@ export class Agents {
   readonly alive: Uint8Array;
   /** Ticks until this agent may fight again (conflict cooldown). */
   readonly fightCd: Float32Array;
+  /** Caravan carry/return state (P4c): 0 = forage (seek the lacked good / forage locally),
+   *  1 = return (head home carrying the far good). Set by tierB/caravan.ts; read by steer. */
+  readonly carryState: Uint8Array;
+  /** Home nutrient (P4c): 0 = A, 1 = B. Set at spawn from the birth cell's dominant scent; in the
+   *  `return` state the agent climbs THIS good's scent to head home. */
+  readonly homeGood: Uint8Array;
 
   // Sense-pass output scratch (Tier A): neighbor aggregates written by sense.ts
   // every think and consumed by steer.ts the same tick. Rewritten for the whole
@@ -81,6 +87,8 @@ export class Agents {
     this.lineageId = new Int32Array(capacity);
     this.alive = new Uint8Array(capacity);
     this.fightCd = new Float32Array(capacity);
+    this.carryState = new Uint8Array(capacity);
+    this.homeGood = new Uint8Array(capacity);
     this.senseKinX = new Float32Array(capacity);
     this.senseKinY = new Float32Array(capacity);
     this.senseKinCount = new Float32Array(capacity);
@@ -113,6 +121,10 @@ export class Agents {
     this.lineageId[i] = lineageId;
     this.alive[i] = 1;
     this.fightCd[i] = 0;
+    // Reused slot must not carry a dead predecessor's caravan state (deterministic restore).
+    // homeGood is overwritten by the caller from the birth cell; carryState starts at forage.
+    this.carryState[i] = 0;
+    this.homeGood[i] = 0;
     this.neighborCount[i] = 0;
     // Clear the sense scratch for the reused slot so a newly-activated agent never
     // carries a dead predecessor's aggregates (keeps the sim a pure function of the
@@ -149,6 +161,8 @@ export class Agents {
     this.lineageId[i] = this.lineageId[last]!;
     this.alive[i] = this.alive[last]!;
     this.fightCd[i] = this.fightCd[last]!;
+    this.carryState[i] = this.carryState[last]!;
+    this.homeGood[i] = this.homeGood[last]!;
     // Swap the whole genome slice down in one copy.
     this.genes.copyWithin(i * GENE_COUNT, last * GENE_COUNT, (last + 1) * GENE_COUNT);
   }

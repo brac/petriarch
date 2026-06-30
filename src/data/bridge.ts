@@ -19,12 +19,15 @@ export const BRIDGE = {
    *  0.4 = 2.5× faster across the gap → ~2.5× fewer ticks of foodless-gap starvation. Tune toward the
    *  crossing being clearly survivable without making roads a teleporter. */
   roadCost: 0.4,
-  /** ANTI-CLUMP (brac's "each bridge prevents other bridges around it"): a cell hardens only if it has
-   *  AT MOST this many road cells in its 8-neighbourhood. With a row-major scan this stops a hot block
-   *  paving solid — the first row hardens, the row below sees 3 road-neighbours above and is blocked →
-   *  a ~1-cell-tall road ALONG the (horizontal) crossing, not a plaza. A road can still extend at its
-   *  tips (1 neighbour), so it grows lengthwise, not widthwise. */
-  maxRoadNeighbors: 2,
+  /** ANTI-CLUMP — straight, spaced roads, not a checker (brac's "each bridge prevents another road for a
+   *  moderate distance"). The crossing is HORIZONTAL (left region ↔ right region), so roads run along x;
+   *  the anti-clump is VERTICAL. A cell hardens only if NO OTHER road lies within `roadSpacing` rows in
+   *  its own column (horizontal extension is unrestricted → straight roads; vertical stacking is blocked
+   *  → spacing). So parallel roads are kept ≥ roadSpacing+1 cells apart. */
+  roadSpacing: 4,
+  /** Road thickness in cells. A road is allowed to be this many rows tall before the spacing rule blocks
+   *  the next row — so a road reads as a proper lane, not a 1-px line. */
+  roadWidth: 2,
   /** render: a hardened road draws as a gold lane (the diffuse gold trail THICKENING into a paved road —
    *  one commerce-gold language). Mid-gold + moderate alpha so the additive layer reads as gold, not a
    *  blown-out white block. */

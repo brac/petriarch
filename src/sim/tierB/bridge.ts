@@ -31,35 +31,30 @@ export function bridge(world: World): void {
   const pass = world.passability;
   const threshold = BRIDGE.setThreshold;
   const road = BRIDGE.roadCost;
-  const maxNbr = BRIDGE.maxRoadNeighbors;
+  const spacing = BRIDGE.roadSpacing;
+  const width = BRIDGE.roadWidth;
   const ground = PASSABILITY.defaultCost; // normal ground (1) — the only state that hardens
 
-  // Row-major scan. A candidate (normal ground worn past the threshold) hardens only if its
-  // 8-neighbourhood holds ≤ maxRoadNeighbors road cells — the anti-clump that keeps a road ~1 cell
-  // wide instead of paving the whole gap. Because earlier-in-scan cells harden first, the row above a
-  // fresh road blocks the row below (3 road-neighbours) → the road runs along the horizontal crossing.
+  // Row-major scan (top → bottom). A candidate (normal ground worn past the threshold) hardens only if
+  // its COLUMN holds no OTHER road within `spacing` rows — a vertical exclusion. Roads within `width`
+  // rows are this road's own body (allowed up to `width` tall); a road farther than that but within
+  // `spacing` is a SEPARATE road too close → block. Horizontal neighbours are never checked, so a road
+  // extends freely along the crossing → straight horizontal lanes, `width` cells thick, kept
+  // ≥ spacing+1 apart. (Scanning top-down, the upper road forms first and reserves the gap below it.)
   for (let cy = 0; cy < GH; cy++) {
     const row = cy * GW;
-    const up = cy > 0 ? row - GW : -1;
-    const dn = cy < GH - 1 ? row + GW : -1;
     for (let cx = 0; cx < GW; cx++) {
       const c = row + cx;
       if (pass[c]! !== ground || trail[c]! < threshold) continue;
-      const hasL = cx > 0, hasR = cx < GW - 1;
-      let nbr = 0;
-      if (hasL && isRoad(pass, c - 1)) nbr++;
-      if (hasR && isRoad(pass, c + 1)) nbr++;
-      if (up >= 0) {
-        if (isRoad(pass, up + cx)) nbr++;
-        if (hasL && isRoad(pass, up + cx - 1)) nbr++;
-        if (hasR && isRoad(pass, up + cx + 1)) nbr++;
+      let blocked = false;
+      let body = 0;
+      for (let d = 1; d <= spacing && !blocked; d++) {
+        const yu = cy - d, yd = cy + d;
+        const near = d < width; // within the road's own thickness → body, else a separate road
+        if (yu >= 0 && isRoad(pass, yu * GW + cx)) { if (near) body++; else blocked = true; }
+        if (yd < GH && isRoad(pass, yd * GW + cx)) { if (near) body++; else blocked = true; }
       }
-      if (dn >= 0) {
-        if (isRoad(pass, dn + cx)) nbr++;
-        if (hasL && isRoad(pass, dn + cx - 1)) nbr++;
-        if (hasR && isRoad(pass, dn + cx + 1)) nbr++;
-      }
-      if (nbr <= maxNbr) pass[c] = road;
+      if (!blocked && body < width) pass[c] = road;
     }
   }
 }

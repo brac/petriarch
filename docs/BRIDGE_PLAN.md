@@ -30,28 +30,34 @@ Reuses two existing systems wholesale, so there is **no new GPU kernel**:
 - `data/bridge.ts` — `setThreshold` (trail magnitude that hardens a cell), `roadCost` (0.4 = 2.5× faster),
   `maxRoadNeighbors` (anti-clump), render tint/alpha.
 - `sim/tierB/bridge.ts` (Tier B, CPU) — row-major scan: a normal-ground cell with `trail ≥ setThreshold`
-  hardens to `roadCost`, **but only if ≤ `maxRoadNeighbors` of its 8 neighbours are already road** (the
-  anti-clump — keeps a road ~1 cell wide instead of paving the gap solid; with a row-major scan the row
-  below a fresh road is blocked → roads run along the horizontal crossing). Permanent (passability never
-  decays) = "a permanent structure." Skips ocean + existing road. Runs after `stigmergy` (trail current),
-  before `integrate` reads passability — both tick paths.
+  hardens to `roadCost`, with a **VERTICAL-exclusion anti-clump** for straight, spaced roads (not a
+  checker): a cell hardens only if no OTHER road lies within `roadSpacing` rows in its own COLUMN. Roads
+  within `roadWidth` rows are this road's body (a lane that many cells thick); a road farther but within
+  `roadSpacing` is a separate road too close → blocked. Horizontal neighbours are never checked, so a road
+  extends freely along the crossing → straight horizontal lanes, `roadWidth` cells thick, kept
+  ≥ `roadSpacing`+1 apart. Permanent (passability never decays) = "a permanent structure." Skips ocean +
+  existing road. Runs after `stigmergy` (trail current), before `integrate` reads passability — both paths.
 - `views/netRenderer.ts` — `drawBridge`: gold lane on every road cell (the trail thickening into a paved
-  road). `views/devPanel.ts` — Bridge group (setThreshold / roadCost / maxRoadNbr / renderAlpha), live.
+  road). `views/devPanel.ts` — Bridge group (setThreshold / roadCost / roadSpacing / roadWidth /
+  renderAlpha), live.
 - Snapshot: passability is already serialized (v10) → roads persist free.
 
-**Validated** (`tools/bridgecheck.ts`, OFF vs ON, 2 seeds × 8k): deliv/k **38 → 55 (+45%)**, trade **1224
-→ 1732 (+41%)**, pop steady, roadCells ~886. (Full-plaza, no anti-clump: deliv/k 76 but it paves the whole
-gap.) Headful-verified on the 3090 (Playwright screenshot): a gold road lattice across the dead zone
-linking two distinctly-hued societies.
+**Validated** (`tools/bridgecheck.ts`, OFF vs ON, 2 seeds × 8k). The anti-clump trades raw throughput for
+a clean road shape — the sparser the roads, the fewer carriers ride them at once:
+- full plaza (no anti-clump): deliv/k 76 (+100%), roadCells 1663 — but paves the whole gap solid.
+- 8-neighbour ≤2 (lattice): deliv/k 55 (+45%), roadCells 886 — branchy checker.
+- **vertical-exclusion spacing 4 / width 2 (current): deliv/k 49 (+29%), trade +30%, roadCells 542** —
+  straight 2-wide horizontal lanes, no checker. Headful-verified on the 3090 (Playwright screenshot).
 
 ## Deferred polish (not MVP)
 
-- **Crispness:** `maxRoadNeighbors 1` (pure single-cell lines) vs 2 (branching lattice) — live-tunable;
-  pick by taste. Roads still slowly widen over very long runs (permanent + edge growth).
+- **Active "prefer the bridge" steering** — the biggest remaining lever. Roads now sit where carriers
+  ALREADY funnel (passive use), but a sparse clean road only helps the carriers exactly on it. A Tier-A
+  steer term pulling carriers toward the nearest road would converge traffic onto the lanes → recover the
+  throughput the clean (sparse) roads gave up (toward the plaza's +100%) WITHOUT the plaza. Cost: a steer
+  attractor (read a road-distance/field) + GPU steer port + verify — a real sub-phase.
 - **Explicit "less food on the road":** a metabolism move-drain discount on road cells. Probably
   unneeded — faster already cuts total starvation. Would need a GPU metab read + verify.
-- **Active "steer toward the bridge":** a Tier-A steer attractor toward roads (+ GPU port + verify) so
-  agents actively converge on the lane rather than benefiting passively. A full sub-phase.
 - **Road decay-if-unused:** so abandoned routes fade instead of littering the map (trades off the
   "permanent structure" framing).
 

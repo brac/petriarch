@@ -77,7 +77,8 @@ const TUNABLES: Tunable[] = [
   // setThreshold → roads form sooner / wider; lower roadCost → faster road (1/cost speed-up).
   { group: "Bridge", label: "setThreshold", min: 0.5, max: 12, step: 0.5, get: () => BRIDGE.setThreshold, set: (v) => { BRIDGE.setThreshold = v; } },
   { group: "Bridge", label: "roadCost", min: 0.1, max: 1, step: 0.05, get: () => BRIDGE.roadCost, set: (v) => { BRIDGE.roadCost = v; } },
-  { group: "Bridge", label: "maxRoadNbr", min: 0, max: 8, step: 1, get: () => BRIDGE.maxRoadNeighbors, set: (v) => { BRIDGE.maxRoadNeighbors = v; } },
+  { group: "Bridge", label: "roadSpacing", min: 0, max: 12, step: 1, get: () => BRIDGE.roadSpacing, set: (v) => { BRIDGE.roadSpacing = v; } },
+  { group: "Bridge", label: "roadWidth", min: 1, max: 5, step: 1, get: () => BRIDGE.roadWidth, set: (v) => { BRIDGE.roadWidth = v; } },
   { group: "Bridge", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => BRIDGE.renderAlpha, set: (v) => { BRIDGE.renderAlpha = v; } },
 ];
 

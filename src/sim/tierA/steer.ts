@@ -15,6 +15,7 @@ import {
 import { COG, COGNITION } from "../../data/cognition";
 import { STIGMERGY } from "../../data/stigmergy";
 import { SCENT } from "../../data/scent";
+import { CARAVAN } from "../../data/caravan";
 import { SIM } from "../../data/sim";
 
 const TAU = Math.PI * 2;
@@ -46,6 +47,7 @@ export function steer(world: World): void {
   const scentWeight = SCENT.weight;
   const provFloor = SCENT.provisionFloor;
   const provSpan = 1 - provFloor;
+  const travelScent = CARAVAN.travelScent;
 
   for (let i = 0; i < count; i++) {
     const bi = i * GENE_COUNT;
@@ -230,16 +232,22 @@ export function steer(world: World): void {
     const wy = Math.sin(ang);
 
     // --- weighted blend (Genes × level; mask gates each term, wander unscaled) ---
-    const kc = onKin ? genes[bi + GENE.KIN_COHESION]! * level : 0;
+    // A COMMITTED carrier (OUTBOUND/RETURN) becomes a lone traveller: kin-cohesion and local foraging
+    // are suppressed so it detaches from the home pack and beelines on the scent across the gap (the
+    // probe showed flag-only commitment is outvoted ~2:1 by cohesion+food and never crosses). Separation
+    // + danger-avoid stay on (don't pile up, don't walk into death zones). P4c.
+    const committed = carryState[i]! !== 0;
+    const kc = onKin && !committed ? genes[bi + GENE.KIN_COHESION]! * level : 0;
     const se = onSep ? genes[bi + GENE.SEPARATION]! * level : 0;
-    const ra = onFood ? genes[bi + GENE.RESOURCE_ATTRACT]! * level : 0;
+    const ra = onFood && !committed ? genes[bi + GENE.RESOURCE_ATTRACT]! * level : 0;
     const ta = onAvoid ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
     // danger descent shares the THREAT_AVOID gene (fearfulness); aggressive lineages
     // evolve low THREAT_AVOID → ignore death zones (the doc's aggression-gating).
     const da = onDanger ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
-    // scent shares the RESOURCE_ATTRACT gene (foraging drive) × SCENT.weight × the state's scentGate
-    // (computed above: forage = provisioning ramp P4b; return = 1, a committed carrier P4c).
-    const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight * scentGate : 0;
+    // scent shares the RESOURCE_ATTRACT gene (foraging drive). Forage: × SCENT.weight × provisioning
+    // ramp (P4b). Committed: × CARAVAN.travelScent (dominates, scentGate is already 1) so the lone
+    // traveller actually crosses (P4c).
+    const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * (committed ? travelScent : scentWeight * scentGate) : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
     let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;

@@ -17,4 +17,10 @@ export const CARAVAN = {
   /** Gate reproduction to the home region (home-good scent dominates the cell). Blocks away-region and
    *  mid-gap births → carriers breed only once home. Set false to A/B-test the effect. */
   breedHomeOnly: true,
+  /** Committed-traveller scent weight (OUTBOUND/RETURN). A committed carrier suppresses kin-cohesion and
+   *  local foraging entirely and follows the scent at THIS weight (vs SCENT.weight in forage) so it
+   *  actually detaches from the home pack and beelines across the gap. The probe showed flag-only
+   *  commitment is outvoted ~2:1 by cohesion+food; this makes scent dominate. Tune up if carriers still
+   *  don't cross (out% in the gap stays ~0), down if returners overshoot / ignore threats. */
+  travelScent: 1.5,
 }; // mutable: the dev panel / study harness tunes these live

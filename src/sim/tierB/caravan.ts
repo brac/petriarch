@@ -46,14 +46,20 @@ export function caravan(world: World): void {
       // FORAGE → OUTBOUND: provisioned (home good filled) and still needing the away good → set off.
       if (homeStore >= commitFrac * maxStore && awayStore < loadFrac * maxStore) carryState[i] = 2;
     } else if (s === 2) {
-      // OUTBOUND → RETURN: reached the far region and loaded up on the away good (the cargo).
-      if (awayStore >= loadFrac * maxStore) carryState[i] = 1;
+      // OUTBOUND → RETURN: must ACTUALLY have reached the far region (away-good scent dominates the
+      // cell) AND be loaded on the away good. Without the geographic check, ordinary barter near home
+      // tops up awayStore past loadFrac and the agent flickers OUTBOUND→RETURN→FORAGE without ever
+      // crossing — inflating the round-trip counters with non-journeys (P4c metric/behaviour bug).
+      const c = resCellIndex(posX[i]!, posY[i]!);
+      const homeScent = home === 0 ? scentA[c]! : scentB[c]!;
+      const awayScent = home === 0 ? scentB[c]! : scentA[c]!;
+      if (awayScent > homeScent && awayStore >= loadFrac * maxStore) { carryState[i] = 1; a.caravanLoaded++; }
     } else {
       // RETURN → FORAGE: crossed back into the home region (home-good scent dominates the cell).
       const c = resCellIndex(posX[i]!, posY[i]!);
       const homeScent = home === 0 ? scentA[c]! : scentB[c]!;
       const awayScent = home === 0 ? scentB[c]! : scentA[c]!;
-      if (homeScent >= awayScent) carryState[i] = 0;
+      if (homeScent >= awayScent) { carryState[i] = 0; a.caravanDelivered++; }
     }
   }
 }

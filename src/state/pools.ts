@@ -26,6 +26,12 @@ export class Agents {
    *  diagnostics for the 3b study; not serialized. */
   fightTotal = 0;
   fightSuppressedTotal = 0;
+  /** Cumulative caravan round-trip transitions (caravan.ts) — P4c diagnostics; not serialized.
+   *  caravanLoaded = OUTBOUND→RETURN flips (loaded the far good); caravanDelivered = RETURN→FORAGE
+   *  flips (made it home). delivered/k is the true round-trip-completion rate (carry% is a misleading
+   *  stock — the RETURN leg is brief so the in-flight count stays tiny even when trips complete). */
+  caravanLoaded = 0;
+  caravanDelivered = 0;
 
   // --- per-agent scalar fields (each its own typed array) ---
   readonly posX: Float32Array;

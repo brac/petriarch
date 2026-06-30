@@ -27,9 +27,9 @@ import { resCellIndex } from "../sim/grid";
 
 const GAP_LO = 0.43 * WORLD_W, GAP_HI = 0.57 * WORLD_W; // barren middle (regions ~0.24/0.76, spread ~0.19)
 
-interface M { pop: number; gapF: number; outF: number; carryF: number; homeF: number; trdK: number; imbal: number; breedF: number }
+interface M { pop: number; gapF: number; outF: number; carryF: number; homeF: number; trdK: number; loadK: number; delivK: number; imbal: number; breedF: number }
 
-function snap(w: World): Omit<M, "trdK"> {
+function snap(w: World): Omit<M, "trdK" | "loadK" | "delivK"> {
   const a = w.agents; const g = a.genes; const n = a.count;
   const sa = w.scentA, sb = w.scentB;
   let gap = 0, out = 0, carry = 0, home = 0, breed = 0, imb = 0;
@@ -53,36 +53,40 @@ function snap(w: World): Omit<M, "trdK"> {
   return { pop: n, gapF: gap / n, outF: out / n, carryF: carry / n, homeF: home / n, imbal: imb / n, breedF: breed / n };
 }
 
-const ZERO: M = { pop: 0, gapF: 0, outF: 0, carryF: 0, homeF: 0, trdK: 0, imbal: 0, breedF: 0 };
+const ZERO: M = { pop: 0, gapF: 0, outF: 0, carryF: 0, homeF: 0, trdK: 0, loadK: 0, delivK: 0, imbal: 0, breedF: 0 };
 const DEF_COMMIT = CARAVAN.commitFrac;
+const DEF_LOAD = CARAVAN.loadFrac;
 const DEF_HOME = CARAVAN.breedHomeOnly;
 const TAIL = 3000;
 
-function runConfig(name: string, commitFrac: number, breedHome: boolean, seeds: number[], ticks: number): M & { name: string } {
+function runConfig(name: string, commitFrac: number, loadFrac: number, breedHome: boolean, seeds: number[], ticks: number): M & { name: string } {
   const acc: M = { ...ZERO };
   let nseed = 0;
   for (const seed of seeds) {
     CARAVAN.commitFrac = commitFrac;
+    CARAVAN.loadFrac = loadFrac;
     CARAVAN.breedHomeOnly = breedHome;
     const w = createWorld(seed);
     initResourceField(w); seedPopulation(w);
     const a = w.agents;
-    let trade0 = 0; const samples: Array<Omit<M, "trdK">> = [];
+    let trade0 = 0, load0 = 0, deliv0 = 0; const samples: Array<Omit<M, "trdK" | "loadK" | "delivK">> = [];
     let alive = true;
     for (let t = 1; t <= ticks; t++) {
       simStep(w);
       if (a.count === 0) { alive = false; break; }
-      if (t === ticks - TAIL) trade0 = a.tradeTotal;
+      if (t === ticks - TAIL) { trade0 = a.tradeTotal; load0 = a.caravanLoaded; deliv0 = a.caravanDelivered; }
       if (t > ticks - TAIL && t % 1000 === 0) samples.push(snap(w));
     }
     if (!alive || samples.length === 0) continue;
     const m: M = { ...ZERO };
     for (const s of samples) for (const k of Object.keys(s)) (m as unknown as Record<string, number>)[k]! += (s as unknown as Record<string, number>)[k]! / samples.length;
     m.trdK = (a.tradeTotal - trade0) / (TAIL / 1000);
+    m.loadK = (a.caravanLoaded - load0) / (TAIL / 1000);
+    m.delivK = (a.caravanDelivered - deliv0) / (TAIL / 1000);
     for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! += (m as unknown as Record<string, number>)[k]!;
     nseed++;
   }
-  CARAVAN.commitFrac = DEF_COMMIT; CARAVAN.breedHomeOnly = DEF_HOME;
+  CARAVAN.commitFrac = DEF_COMMIT; CARAVAN.loadFrac = DEF_LOAD; CARAVAN.breedHomeOnly = DEF_HOME;
   const d = nseed || 1;
   for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! /= d;
   return { name, ...acc };
@@ -90,21 +94,20 @@ function runConfig(name: string, commitFrac: number, breedHome: boolean, seeds: 
 
 function fmt(m: M & { name: string }): string {
   const p = (v: number, w: number, d = 1): string => (isNaN(v) ? "NaN" : v.toFixed(d)).padStart(w);
-  return `${m.name.padEnd(12)} pop${p(m.pop, 6, 0)} | gap${p(m.gapF * 100, 4)}% out${p(m.outF * 100, 5)}% carry${p(m.carryF * 100, 5)}% home${p(m.homeF * 100, 5)}% | ` +
+  return `${m.name.padEnd(12)} pop${p(m.pop, 6, 0)} | gap${p(m.gapF * 100, 4)}% out${p(m.outF * 100, 5)}% load/k${p(m.loadK, 5, 0)} deliv/k${p(m.delivK, 5, 0)} home${p(m.homeF * 100, 5)}% | ` +
     `trd/k${p(m.trdK, 6, 0)} imbal${p(m.imbal, 6, 3)} breed${p(m.breedF * 100, 5)}%`;
 }
 
-const SEEDS = [11, 22, 33];
-const TICKS = 8000;
+const SEEDS = [11, 22];
+const TICKS = 6000;
 
-console.log(`# CARAVAN study (P4c) — commitFrac sweep — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
-console.log(`# out% = OUTBOUND (committed, going), carry% = RETURN (loaded, heading home). WANT: carry% > 0 (round`);
-console.log(`#   trips COMPLETE — agents survive to load + return), not just out% (commit then die). Higher commitFrac`);
-console.log(`#   = fuller before setting off. pop/breed healthy. commit 9.0 = never commit (control).`);
-const CONFIGS: Array<[string, number, boolean]> = [
-  ["commit-OFF", 9.0, true],   // never commit (control = P4b)
-  ["commit0.7", 0.7, true],
-  ["commit0.85", 0.85, true],
-  ["commit0.95", 0.95, true],
+console.log(`# CARAVAN study (P4c) — loadFrac sweep @ commit0.7 — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
+console.log(`# load/k = OUTBOUND→RETURN flips per 1k (loaded the far good), deliv/k = RETURN→home flips per 1k`);
+console.log(`#   (COMPLETED round trips — the true signal; carry% stock is misleading). WANT deliv/k > 0 and`);
+console.log(`#   rising as loadFrac drops. lower loadFrac = flip to RETURN with a smaller (achievable) load.`);
+const CONFIGS: Array<[string, number, number, boolean]> = [
+  ["load-OFF", 9.0, 0.85, true],   // never commit (control = P4b)
+  ["load0.85", 0.7, 0.85, true],   // current default
+  ["load0.70", 0.7, 0.70, true],
 ];
-for (const [name, cf, bh] of CONFIGS) console.log(fmt(runConfig(name, cf, bh, SEEDS, TICKS)));
+for (const [name, cf, lf, bh] of CONFIGS) console.log(fmt(runConfig(name, cf, lf, bh, SEEDS, TICKS)));

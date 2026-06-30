@@ -1,35 +1,46 @@
 # Petriarch — Trade Phase 4c: the round trip (carriers, not migrants)
 
-## STATUS (WIP — paused mid-tuning) — what's next
-**CPU machinery BUILT + typechecks** (committed): `carryState`/`homeGood` in pools (spawn/kill/snapshot
-**v9**), `data/caravan.ts`, the Tier-B `caravan.ts` 3-state machine (FORAGE→OUTBOUND→RETURN), steer
-reads state to pick the scent target, breed-only-at-home gate in reproduce, wired into step + both
-gpuSim paths. **NOT yet working:** carriers don't complete round trips — the headless study shows
-`carry%`(return) ≈ 0: agents commit to OUTBOUND but **die mid-gap before loading in region B**, because
-two foodless crossings on energy-as-cargo is too costly when they commit under-provisioned (commitFrac
-0.7 ⇒ home-good 70% but total reserve ~35%).
+## STATUS (round trip WORKS — mid-tuning) — what's next
+**The round trip is real and honest.** Two bugs found+fixed turned the inert P4c into completing
+caravans:
+1. **Symbolic-only commitment** — flipping to OUTBOUND changed only the scent *target*; the pull
+   (`gene·0.6`) was outvoted ~2:1 by kin-cohesion + local food (`gene·1.0` each), so committed agents
+   never left home (probe: 93% of OUTBOUND still home-side). FIX = **committed-traveller steer**
+   (`steer.ts`): in OUTBOUND/RETURN, suppress kin-cohesion AND local foraging entirely and follow scent
+   at `CARAVAN.travelScent` (1.5) so a carrier detaches from the pack and beelines across. Separation +
+   danger-avoid stay on.
+2. **Flicker-inflated completions** — OUTBOUND→RETURN had no geographic check, so ordinary barter near
+   home topped up `awayStore` past `loadFrac` and agents flickered OUTBOUND→RETURN→FORAGE without
+   crossing (counter read 1840/k of non-journeys). FIX = require `awayScent > homeScent` (actually in
+   the far region) to flip (`caravan.ts`).
 
-**Key finding already banked:** a *continuous* provisioning gate (P4b) can't produce committed travel
-(agents dip toward the gap, the gate cuts the pull as they deplete, they retreat — first 2-state study
-was fully inert: home% 100%, carry% 0). That's why the OUTBOUND committed state exists. See
+**Honest numbers** (`tools/crossing.ts`, loadFrac sweep @ commit0.7, geo-gate on): real cross-gap
+deliveries **~10–16/k** (was a flicker-inflated 1840); **trade volume 2×** (947→2057/k); imbalance
+.093→.081 (goods move both ways). `loadFrac` **0.70 > 0.85** (16 vs 10 deliv/k). Return-trip mortality
+~⅓ (load/k 23 → deliv/k 16: a third load but die crossing back — the energy-cargo tax). COST: pop −5%,
+breed 51%→41% (carriers trade instead of breeding — "trade pays" hasn't flipped net-positive yet).
+
+New diagnostics: `caravanLoaded`/`caravanDelivered` counters in pools (deliv/k = the true completion
+rate; carry% stock is misleading — RETURN leg is brief). `tools/probe.ts` = OUTBOUND location/load/
+starvation bucketing (the tool that caught bug #1). Metric flaw #3 (`home%` re-homes at birth) still
+open but less load-bearing now that deliv/k exists.
+
+**Key finding banked:** a *continuous* provisioning gate (P4b) can't produce committed travel; a
+discrete OUTBOUND state + a steer that actually suppresses the home-pull is what crosses the gap. See
 [[petriarch-longrange-fields]].
 
-**NEXT (resume here):**
-1. **Finish the commitFrac sweep** (the run was killed): does `commit0.95` (set off only when nearly
-   full on the home good) let round trips COMPLETE (carry% > 0)? `tools/crossing.ts` is already the
-   sweep (commit-OFF / 0.7 / 0.85 / 0.95, with the new `out%` OUTBOUND metric). Quick to re-run
-   headless. If carry% climbs with commitFrac → P4c-v1 viable, just tune; bake commitFrac + loadFrac.
-2. **If energy-cargo round trips stay infeasible even at 0.95** (two crossings cost > a full store) →
-   escalate to **Fork ② = dedicated non-consumed cargo store**: the agent carries cargo metabolism
-   can't burn, so it only needs survival-fuel for ITSELF and delivers the goods intact. Or cheaper
-   crossing (a caravan in-transit metabolic discount / narrower gap).
-3. **Fix the distinctness metric:** `home%` is flawed — `homeGood` is set at BIRTH, so a migrant's
-   offspring re-home to the new region and home% reads ~100% regardless. Use signature-separation
-   between regions (or track lineage origin) to actually detect society-blurring.
-4. **GPU port (4c-4) is NOT started** — deferred until the CPU behaviour is validated (mirrors
-   P4a-cpu→P4a-gpu). When done: pack `carryState`+`homeGood` into one u32 → steer binding 11→12, bump
-   the device limit, state-branch the scent target in steer.wgsl, Playwright-verify (seed-sweep the
-   flake). See [[petriarch-adding-a-gpu-field]].
+**NEXT (resume here — brac picked: commit, then tune for net-positive):**
+1. **Tune toward net-positive** (energy-cargo / Fork 2a kept): sweep `loadFrac` lower (0.55/0.40) and
+   `travelScent` (1.5→2.0). Goal: push deliv/k up + cut return-mortality + recover pop toward baseline
+   without society-blur. Fast runs (2 seeds / 6k ticks). Bake `loadFrac`+`travelScent`+`commitFrac`.
+2. **If pop can't recover on energy-cargo** → escalate to **Fork ② = dedicated non-consumed cargo
+   store** (carrier burns survival-fuel only for itself, delivers goods intact — erases the ⅓ return
+   mortality). Bigger build (per-agent `cargo`+`cargoGood`, metabolism carve-out, load/unload, GPU).
+3. **GPU port (4c-4) NOT started** — deferred until CPU behaviour is baked. Pack `carryState`+`homeGood`
+   into one u32 → steer 11→12 bindings (bump device limit), state-branch the scent target + the
+   committed-traveller suppression in `steer.wgsl`, Playwright-verify (seed-sweep the flake). NOTE: the
+   GPU steer is currently NON-PARITY (CPU-only committed-traveller logic). See
+   [[petriarch-adding-a-gpu-field]].
 
 ---
 

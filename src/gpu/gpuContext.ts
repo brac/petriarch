@@ -24,6 +24,7 @@ import { COSTS } from "../data/costs";
 import { MORPH } from "../data/morphology";
 import { COGNITION } from "../data/cognition";
 import { STIGMERGY } from "../data/stigmergy";
+import { SCENT } from "../data/scent";
 import { PASSABILITY } from "../data/passability";
 import { TICK_DT } from "../core/time";
 
@@ -111,6 +112,7 @@ export class GpuContext {
   private readonly resourcesBuf: GPUBuffer;
   private readonly resourcesBBuf: GPUBuffer; // nutrient-B field (metab depletes, steer reads)
   private readonly dangerBuf: GPUBuffer;
+  private readonly scentBuf: GPUBuffer; // packed static supply-scent [scentA | scentB] (P4a)
   private readonly steerParamsBuf: GPUBuffer;
   private readonly steerOutBuf: GPUBuffer;
   private readonly steerOutRead: GPUBuffer;
@@ -266,6 +268,8 @@ export class GpuContext {
     this.energyBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.energyBBuf = buf(capacity * f32, STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
+    // Packed supply-scent: 2×grid (scentA | scentB), static — uploaded once (P4a).
+    this.scentBuf = buf(2 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
     this.steerParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
@@ -285,6 +289,7 @@ export class GpuContext {
         { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeSteer = dev.createComputePipeline({
@@ -305,6 +310,7 @@ export class GpuContext {
         { binding: 8, resource: { buffer: this.resourcesBBuf } },
         { binding: 9, resource: { buffer: this.energyBuf } },
         { binding: 10, resource: { buffer: this.energyBBuf } },
+        { binding: 11, resource: { buffer: this.scentBuf } },
       ],
     });
 
@@ -446,6 +452,7 @@ export class GpuContext {
     this.steerParamsF32[8] = STIGMERGY.dangerGain;
     this.steerParamsF32[9] = STIGMERGY.dangerMaxPull;
     this.steerParamsF32[10] = SIM.maxEnergyPerSize; // deficit-seeking: store cap per nutrient
+    this.steerParamsF32[11] = SCENT.weight; // long-range supply-scent pull (P4a)
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 
@@ -797,6 +804,14 @@ export class GpuContext {
   /** Upload the danger field (read-only; steer descends its gradient). */
   uploadDanger(danger: Float32Array): void {
     this.queue.writeBuffer(this.dangerBuf, 0, danger as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload the packed static supply-scent [scentA | scentB] (read-only; steer climbs it, P4a).
+   *  Static — call once after init/restore, not per tick. */
+  uploadScent(scentA: Float32Array, scentB: Float32Array): void {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    this.queue.writeBuffer(this.scentBuf, 0, scentA as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+    this.queue.writeBuffer(this.scentBuf, RES_CELLS * f32, scentB as Float32Array<ArrayBuffer>, 0, RES_CELLS);
   }
 
   /** Upload the passability field (read-only; integrate blocks/throttles the step). */

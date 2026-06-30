@@ -31,6 +31,7 @@ const COG_SEP    = 4u;
 const COG_AVOID  = 8u;
 const COG_WANDER = 16u;
 const COG_DANGER = 32u;
+const COG_DEMAND = 64u; // long-range supply-scent climb (P4a)
 
 struct Params {
   count    : u32,
@@ -44,6 +45,7 @@ struct Params {
   dangerGain    : f32, // danger |gradient| → pull slope (magnitude-sensitive)
   dangerMaxPull : f32, // danger pull ceiling
   maxEnergyPerSize : f32, // store cap per nutrient = SIZE·this (deficit-seeking)
+  scentWeight : f32, // long-range supply-scent pull strength (P4a)
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -57,6 +59,8 @@ struct Params {
 @group(0) @binding(8) var<storage, read>       resB     : array<f32>;  // nutrient-B field
 @group(0) @binding(9) var<storage, read>       energy   : array<f32>;  // nutrient-A store
 @group(0) @binding(10) var<storage, read>      energyB  : array<f32>;  // nutrient-B store
+// Packed supply-scent: scentA in [0, nCells), scentB in [nCells, 2·nCells) (P4a; static).
+@group(0) @binding(11) var<storage, read>      scent    : array<f32>;
 
 fn hashU32(x: u32) -> u32 {
   var v = x;
@@ -155,6 +159,34 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     } else { dgx = 0.0; dgy = 0.0; }
   }
 
+  // --- supply-scent gradient: long-range pull toward where the LACKED nutrient grows (P4a;
+  // mirrors CPU steer.ts). Climb scentX weighted by deficit of X; scent is a static cone that
+  // reaches across the barren gap where the local food gradient is zero. (DEMAND off skips it.)
+  let onDemand = (P.cogMask & COG_DEMAND) != 0u;
+  var dmx = 0.0;
+  var dmy = 0.0;
+  if (onDemand) {
+    let gw = i32(P.resGridW);
+    let gh = i32(P.resGridH);
+    let nCells = u32(gw * gh);
+    var cx = clamp(i32(floor(xi / P.resCellW)), 0, gw - 1);
+    var cy = clamp(i32(floor(yi / P.resCellH)), 0, gh - 1);
+    let xl = select(cx, cx - 1, cx > 0);
+    let xr = select(cx, cx + 1, cx < gw - 1);
+    let yu = select(cy, cy - 1, cy > 0);
+    let yd = select(cy, cy + 1, cy < gh - 1);
+    let rowc = cy * gw;
+    let maxStore = genes[i * GENE_COUNT + G_SIZE] * P.maxEnergyPerSize;
+    let sA = clamp(1.0 - energy[i] / maxStore, 0.0, 1.0);
+    let sB = clamp(1.0 - energyB[i] / maxStore, 0.0, 1.0);
+    dmx = (scent[u32(rowc + xr)] - scent[u32(rowc + xl)]) * sA
+        + (scent[nCells + u32(rowc + xr)] - scent[nCells + u32(rowc + xl)]) * sB;
+    dmy = (scent[u32(yd * gw + cx)] - scent[u32(yu * gw + cx)]) * sA
+        + (scent[nCells + u32(yd * gw + cx)] - scent[nCells + u32(yu * gw + cx)]) * sB;
+    let l = sqrt(dmx * dmx + dmy * dmy);
+    if (l > 1e-4) { dmx = dmx / l; dmy = dmy / l; } else { dmx = 0.0; dmy = 0.0; }
+  }
+
   // --- wander: a per-agent seeded unit vector (GPU determinism domain) ---
   let h = hashU32((i * 2654435761u) ^ P.seed);
   let ang = (f32(h) / 4294967296.0) * TAU;
@@ -171,10 +203,12 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   // danger descent shares THREAT_AVOID (fearfulness); aggressive lineages evolve low
   // THREAT_AVOID → ignore death zones.
   let da = select(0.0, genes[bi + G_TA] * lvl, onDanger);
+  // scent shares RESOURCE_ATTRACT (foraging drive) × level × scentWeight (P4a, mirrors CPU).
+  let dm = select(0.0, genes[bi + G_RA] * lvl * P.scentWeight, onDemand);
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
-  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + wa * wx;
-  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + wa * wy;
+  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;
+  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + wa * wy;
   let l = sqrt(dx * dx + dy * dy);
   if (l > 1e-4) { dx = dx / l; dy = dy / l; } else { dx = 0.0; dy = 0.0; }
 

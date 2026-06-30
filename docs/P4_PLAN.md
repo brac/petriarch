@@ -43,7 +43,7 @@ as `COG.DEMAND`/`COG.TRAIL` bits, gene-weighted × level, and a cleared bit must
 
 ## Sub-phases (each ships green: typecheck + GPU verify + headless study)
 
-### P4a — the long-range REACH — ✅ CPU DONE (P4a-gpu next)
+### P4a — the long-range REACH — ✅ DONE (CPU + GPU verified)
 **Built + studied (crossing.ts).** Steer gains a `COG.DEMAND` term that climbs a long-range supply
 field weighted by per-nutrient deficit, so a B-deficient agent is pulled across the gap toward the
 B-region — the reach the local 4-neighbour food gradient can't provide.
@@ -60,9 +60,12 @@ anywhere. Climb scentX weighted by DEFICIT of X (the long-range twin of the loca
 starts emptying (migration, not trade) → 0.6 is the cap. **Honest cost:** pop −12%, breed-readiness
 −13pts — crossing the foodless gap is *unprovisioned*, so it costs energy/lives. **This proves P4a and
 P4b are coupled: the reach works but pays a survival tax until provisioning (P4b) makes the crossing
-cheap.** Snapshot v8 (+scentA/B), determinism verified. **GPU: non-parity until P4a-gpu** (steer.wgsl
-doesn't read scent yet — mirrors P1a→P1b; the scent is static so the port uploads it once, but steer
-is at the 10-storage-buffer limit → pack scentA+B into one buffer + bump to 11, then re-verify).
+cheap.** Snapshot v8 (+scentA/B), determinism verified. **GPU PORTED + VERIFIED** (P4a-gpu): the scent term is
+in steer.wgsl, scentA+B packed into one storage buffer at binding 11, device limit bumped 10→11,
+scentWeight in steer param slot 11, uploaded each tick (static, mirrors passability). Re-verified on
+the real 3090 (nvidia ampere) via the headless Playwright runner: **steer 0 mismatches** (worstAbs
+0.0018) with the default mask (incl. DEMAND) → the scent path matches the CPU golden reference;
+hash/sense/integrate/chain all green.
 *(original P4a scope below, for reference)*
 
 ### P4a (original scope) — the long-range demand field

@@ -272,6 +272,7 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   const snapDanger = world.danger.slice();
   gpu.buildHash(snapX, snapY, count);
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
+  gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live gpuSim upload (P4a)
   gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, count, world.tick);
   const gs = await gpu.readSteer();
 
@@ -563,6 +564,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   gpu.uploadResourcesB(snapResB);
   gpu.uploadDanger(snapDanger); // steer reads it; must mirror the live gpuSim upload
   gpu.uploadPassability(world.passability); // integrate reads it; mirror the live upload
+  gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live upload (P4a)
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();
 

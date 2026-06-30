@@ -59,6 +59,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
     gpu.uploadResourcesB(world.resourceB);
     gpu.uploadDanger(world.danger);
     gpu.uploadPassability(world.passability);
+    gpu.uploadScent(world.scentA, world.scentB); // static supply-scent (P4a); steer climbs it
 
     const senseP = {
       budget: world.intensity.neighborBudget,
@@ -158,6 +159,7 @@ export class GpuPipeline {
       this.gpu.uploadResourcesB(world.resourceB);
       this.gpu.uploadDanger(world.danger);
       this.gpu.uploadPassability(world.passability);
+      this.gpu.uploadScent(world.scentA, world.scentB); // static supply-scent (P4a); steer climbs it
       const senseP = {
         budget: world.intensity.neighborBudget,
         senseR2: SIM.senseRadius * SIM.senseRadius,

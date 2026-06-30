@@ -46,6 +46,7 @@ struct Params {
   dangerMaxPull : f32, // danger pull ceiling
   maxEnergyPerSize : f32, // store cap per nutrient = SIZE·this (deficit-seeking)
   scentWeight : f32, // long-range supply-scent pull strength (P4a)
+  provisionFloor : f32, // P4b: reserve floor below which an agent won't undertake the crossing
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -203,8 +204,15 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   // danger descent shares THREAT_AVOID (fearfulness); aggressive lineages evolve low
   // THREAT_AVOID → ignore death zones.
   let da = select(0.0, genes[bi + G_TA] * lvl, onDanger);
-  // scent shares RESOURCE_ATTRACT (foraging drive) × level × scentWeight (P4a, mirrors CPU).
-  let dm = select(0.0, genes[bi + G_RA] * lvl * P.scentWeight, onDemand);
+  // scent shares RESOURCE_ATTRACT (foraging drive) × level × scentWeight × provisioning gate (P4b:
+  // only a well-fed agent crosses), mirrors CPU steer.ts.
+  var dm = 0.0;
+  if (onDemand) {
+    let maxStore = genes[bi + G_SIZE] * P.maxEnergyPerSize;
+    let reserve = (energy[i] + energyB[i]) / (2.0 * maxStore);
+    let gate = clamp((reserve - P.provisionFloor) / (1.0 - P.provisionFloor), 0.0, 1.0);
+    dm = genes[bi + G_RA] * lvl * P.scentWeight * gate;
+  }
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
   var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;

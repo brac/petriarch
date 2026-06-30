@@ -118,7 +118,7 @@ export class GpuContext {
   private readonly steerOutRead: GPUBuffer;
   private readonly steerBindGroup: GPUBindGroup;
   private readonly pipeSteer: GPUComputePipeline;
-  private readonly steerParamsHost = new ArrayBuffer(48);
+  private readonly steerParamsHost = new ArrayBuffer(64); // 13 used slots (P4b +provisionFloor) → 64-aligned
   private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
   private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
 
@@ -270,7 +270,7 @@ export class GpuContext {
     this.dangerBuf = buf(RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST); // read-only in steer
     // Packed supply-scent: 2×grid (scentA | scentB), static — uploaded once (P4a).
     this.scentBuf = buf(2 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
-    this.steerParamsBuf = buf(48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    this.steerParamsBuf = buf(64, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     this.steerOutRead = buf(capacity * STEER_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
@@ -453,6 +453,7 @@ export class GpuContext {
     this.steerParamsF32[9] = STIGMERGY.dangerMaxPull;
     this.steerParamsF32[10] = SIM.maxEnergyPerSize; // deficit-seeking: store cap per nutrient
     this.steerParamsF32[11] = SCENT.weight; // long-range supply-scent pull (P4a)
+    this.steerParamsF32[12] = SCENT.provisionFloor; // P4b provisioning gate floor
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 

@@ -53,14 +53,16 @@ function snap(w: World): Omit<M, "trdK"> {
 const ZERO: M = { pop: 0, gapF: 0, leftF: 0, rightF: 0, trdK: 0, imbal: 0, breedF: 0 };
 const DEF_MASK = COGNITION.mask;
 const DEF_WEIGHT = SCENT.weight;
+const DEF_PROV = SCENT.provisionFloor;
 const TAIL = 3000;
 
-function runConfig(name: string, demandOn: boolean, weight: number, seeds: number[], ticks: number): M & { name: string } {
+function runConfig(name: string, demandOn: boolean, weight: number, provFloor: number, seeds: number[], ticks: number): M & { name: string } {
   const acc: M = { ...ZERO };
   let nseed = 0;
   for (const seed of seeds) {
     COGNITION.mask = demandOn ? COG_ALL : (COG_ALL & ~COG.DEMAND);
     SCENT.weight = weight;
+    SCENT.provisionFloor = provFloor;
     const w = createWorld(seed);
     initResourceField(w); seedPopulation(w);
     const a = w.agents;
@@ -79,7 +81,7 @@ function runConfig(name: string, demandOn: boolean, weight: number, seeds: numbe
     for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! += (m as unknown as Record<string, number>)[k]!;
     nseed++;
   }
-  COGNITION.mask = DEF_MASK; SCENT.weight = DEF_WEIGHT;
+  COGNITION.mask = DEF_MASK; SCENT.weight = DEF_WEIGHT; SCENT.provisionFloor = DEF_PROV;
   const d = nseed || 1;
   for (const k of Object.keys(acc)) (acc as unknown as Record<string, number>)[k]! /= d;
   return { name, ...acc };
@@ -94,14 +96,14 @@ function fmt(m: M & { name: string }): string {
 const SEEDS = [11, 22, 33];
 const TICKS = 8000;
 
-console.log(`# CROSSING study (P4a) — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
-console.log(`# WANT demand-ON: gap% UP from ~0 (agents cross the dead zone), left/right stay BALANCED (not a one-side`);
-console.log(`#   stampede), trd/k UP + imbal DOWN (complements meet across the gap), pop healthy. FALSIFY: pop collapse,`);
-console.log(`#   or one region empties (migration not trade), or gap% stays ~0 (signal can't reach).`);
-const CONFIGS: Array<[string, boolean, number]> = [
-  ["demand-OFF", false, 0],
-  ["weight0.3", true, 0.3],
-  ["weight0.6", true, 0.6],
-  ["weight1.0", true, 1.0],
+console.log(`# CROSSING study (P4b — provisioning gate) — seeds ${SEEDS.join(",")} ticks ${TICKS}, tail ${TAIL}`);
+console.log(`# Provisioning gates the scent pull by total energy reserve (only well-fed agents cross). WANT vs the`);
+console.log(`#   no-provisioning baseline (prov0.0): pop + breed RECOVER toward demand-OFF while gap traffic + trade HOLD.`);
+const CONFIGS: Array<[string, boolean, number, number]> = [
+  ["demand-OFF", false, 0, 0],
+  ["prov0.0-w.6", true, 0.6, 0.0], // no provisioning = raw P4a
+  ["prov0.3-w.6", true, 0.6, 0.3],
+  ["prov0.45-w.6", true, 0.6, 0.45],
+  ["prov0.6-w.6", true, 0.6, 0.6],
 ];
-for (const [name, on, wt] of CONFIGS) console.log(fmt(runConfig(name, on, wt, SEEDS, TICKS)));
+for (const [name, on, wt, pf] of CONFIGS) console.log(fmt(runConfig(name, on, wt, pf, SEEDS, TICKS)));

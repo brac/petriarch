@@ -16,8 +16,14 @@
 // the resource FIELD + gene VALUES — rule 10).
 
 export const SCENT = {
-  /** steer term strength: scent pull = RESOURCE_ATTRACT gene × cognition level × this. A global knob
-   *  (no new gene — P4a DECISION ②) so the long-haul pull is tunable vs local foraging. The cone
-   *  (init.ts buildScent) reaches the whole map by construction, so this is the only knob. */
+  /** steer term strength: scent pull = RESOURCE_ATTRACT gene × cognition level × this × provisionGate.
+   *  A global knob (no new gene — P4a DECISION ②) so the long-haul pull is tunable vs local foraging.
+   *  The cone (init.ts buildScent) reaches the whole map by construction. */
   weight: 0.6,
+  /** PROVISIONING (P4b): the scent pull is gated by total energy reserve so only a WELL-FED agent
+   *  undertakes the crossing (and by construction has the reserve to survive the foodless gap), while
+   *  a low-energy agent ignores the far scent and forages locally. gate = clamp((reserve−floor)/
+   *  (1−floor), 0, 1), reserve = (energyA+energyB)/(2·maxStore). Below this floor → no crossing; at
+   *  full stores → full pull. The tradeoff: a crosser spends its reserve to reach the other good. */
+  provisionFloor: 0.45,
 }; // mutable: the dev panel / study harness tunes these live

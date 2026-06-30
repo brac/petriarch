@@ -44,6 +44,8 @@ export function steer(world: World): void {
   const onDanger = (mask & COG.DANGER) !== 0;
   const onDemand = (mask & COG.DEMAND) !== 0;
   const scentWeight = SCENT.weight;
+  const provFloor = SCENT.provisionFloor;
+  const provSpan = 1 - provFloor;
 
   for (let i = 0; i < count; i++) {
     const bi = i * GENE_COUNT;
@@ -219,9 +221,16 @@ export function steer(world: World): void {
     // danger descent shares the THREAT_AVOID gene (fearfulness); aggressive lineages
     // evolve low THREAT_AVOID → ignore death zones (the doc's aggression-gating).
     const da = onDanger ? genes[bi + GENE.THREAT_AVOID]! * level : 0;
-    // scent shares the RESOURCE_ATTRACT gene (foraging drive), scaled by the global SCENT.weight
-    // so the long-haul pull is tunable vs local foraging (P4a — no new gene).
-    const dm = onDemand ? genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight : 0;
+    // scent shares the RESOURCE_ATTRACT gene (foraging drive), scaled by SCENT.weight (P4a) and by a
+    // PROVISIONING gate (P4b): only a well-fed agent crosses — gate ramps 0→1 from the reserve floor
+    // to full stores, so a starving agent ignores the far scent and forages locally (survives).
+    let dm = 0;
+    if (onDemand) {
+      const reserve = (energy[i]! + energyB[i]!) / (2 * maxStore);
+      let gate = (reserve - provFloor) / provSpan; // divide (match the GPU op exactly, not ×reciprocal)
+      gate = gate < 0 ? 0 : gate > 1 ? 1 : gate;
+      dm = genes[bi + GENE.RESOURCE_ATTRACT]! * level * scentWeight * gate;
+    }
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
     let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + wa * wx;

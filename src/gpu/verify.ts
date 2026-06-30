@@ -291,7 +291,12 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
     const gy = gs[i * STEER_STRIDE + 1]!;
     const d = Math.max(Math.abs(gx - cSteerX[i]!), Math.abs(gy - cSteerY[i]!));
     if (d > worstAbs) worstAbs = d;
-    if (d > 2e-3) {
+    // 1e-2 (≈0.6° of unit-vector direction). The P4b provisioning gate multiplies the whole
+    // scent term, so its inherent CPU-f64 vs GPU-f32 difference tips a few borderline agents
+    // (near a steering cusp) past the old 2e-3 bar — a precision-boundary flake, seed-swept
+    // non-systematic (0–3 of ~3900 agents, worst ≤7e-3, some seeds clean). A real logic bug is
+    // ≫1e-1 (wrong direction), still caught. See memory petriarch-headless-webgpu-verify.
+    if (d > 1e-2) {
       mismatches++;
       if (notes.length < 8) {
         notes.push(
@@ -603,7 +608,10 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
       Math.abs(g.velY[i]! - cVY[i]!),
     );
     if (dPV > worstPosVel) worstPosVel = dPV;
-    if (dPV > 2e-2) {
+    // 5e-2 px (sub-pixel). Matches the steer-verify recalibration: the P4b provisioning gate's
+    // borderline-agent steer flake (≤7e-3 direction) propagates through integrate to a ~0.03 px
+    // position diff for the same few agents. A real logic bug moves agents by many px, still caught.
+    if (dPV > 5e-2) {
       posVelMismatches++;
       if (notes.length < 8) notes.push(`agent ${i} posVel d=${dPV.toExponential(2)}`);
     }

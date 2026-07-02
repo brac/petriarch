@@ -198,8 +198,15 @@ Seems slow. Could we improve preformance at all?
 ## So much conflict
 There is always conflcit. That's fine to an extent but it seems almolst always present in most areas. I would think that after an inital period of conlfict one a trade starts to take over the conflict lessens more and more. Perahps we need some kind of multual a cooperation conficlt avoidance adjustment? 
 
-## Borders
+## Borders — FIXED (border overlay legibility)
 Why would the borders become everywehre? Its like very square is lit up, or most squares. I would think that borders would be more clear and less shifty. I get that they change but after some time it's just a mess of yellw grid lines
+Root cause: the 'v' border overlay defined a cell's society from as few as 1 agent
+(BORDER_CELL_MIN=1) and drew a seam wherever adjacent cells differed by the bare
+sigThreshold — so within-tribe mutation spread between sparse cells painted yellow on
+nearly every boundary. Fix: require a real local sample (BORDER_CELL_MIN=4) and a margin
+over the cutoff (BORDER_SIG_MULT=1.4) so only genuine tribe frontiers draw. Verified
+headful at tick ~10.7k: borders now trace the major seams instead of a full-grid wash.
+(The colored ground tint = each tribe's turf glowing in its hue, which is by design.)
 
 ## Tick counter — FIXED (4c-next)
 We need a tick counter oin the UI.

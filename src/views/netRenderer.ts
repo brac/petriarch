@@ -73,7 +73,14 @@ const EDGE_K = 3; // edges per agent
 const BORDER_TINT = 0xffe600; // bright yellow — high contrast against every society hue
 const BORDER_ALPHA = 0.85;
 const BORDER_NODE_ALPHA = 0.16; // nodes ghosted in border mode so the contour reads clearly
-const BORDER_CELL_MIN = 1; // min agents in a cell for it to have a society (else skip the cell)
+// A cell's "society" is the MEAN raw signature of the agents in it. A cell with 1–2 agents is a noisy
+// single sample: two sparse adjacent cells of the SAME tribe routinely differ by ~sigThreshold from
+// mutation spread alone, which used to paint a yellow seam on nearly every boundary (BUGS "Borders").
+// Require a real local sample so the mean is stable (kills sparse-noise seams), and only draw where
+// cells differ by a MARGIN over the same-group cutoff, so within-tribe spread doesn't register — only
+// genuine tribe frontiers do. Dense interiors were already clean; this fixes the sparse fringe + seams.
+const BORDER_CELL_MIN = 4; // min agents in a cell for it to have a society (else skip the cell)
+const BORDER_SIG_MULT = 1.4; // adjacent-cell signature gap must exceed sigThreshold × this to be a border
 
 export class NetRenderer {
   readonly app = new Application();
@@ -483,7 +490,8 @@ export class NetRenderer {
       cnt[c]!++;
     }
 
-    const sigT2 = SIM.sigThreshold * SIM.sigThreshold;
+    const borderSigT = SIM.sigThreshold * BORDER_SIG_MULT;
+    const sigT2 = borderSigT * borderSigT;
     const minCnt = BORDER_CELL_MIN;
     let segs = 0;
     for (let cy = 0; cy < gh; cy++) {

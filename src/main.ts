@@ -29,10 +29,12 @@ function main(): void {
   const cognitionEl = document.getElementById("cognition");
   const simSpeedEl = document.getElementById("simspd");
   const popEl = document.getElementById("pop");
+  const tickEl = document.getElementById("tick");
   if (
     !appEl ||
     !perfEl ||
     !popEl ||
+    !tickEl ||
     !(intensityEl instanceof HTMLInputElement) ||
     !(cognitionEl instanceof HTMLInputElement) ||
     !(simSpeedEl instanceof HTMLInputElement)
@@ -54,6 +56,7 @@ function main(): void {
     cognition: cognitionEl,
     simSpeed: simSpeedEl,
     pop: popEl,
+    tick: tickEl,
   });
 
   const devEl = document.getElementById("devpanel");

@@ -17,6 +17,7 @@ export interface HudElements {
   cognition: HTMLInputElement;
   simSpeed: HTMLInputElement;
   pop: HTMLElement;
+  tick: HTMLElement;
 }
 
 export class Hud {
@@ -57,5 +58,6 @@ export class Hud {
   /** Call once per rendered frame. */
   update(): void {
     this.els.pop.textContent = String(this.world.agents.count);
+    this.els.tick.textContent = String(this.world.tick);
   }
 }

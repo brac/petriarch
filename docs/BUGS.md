@@ -197,3 +197,10 @@ Seems slow. Could we improve preformance at all?
 
 ## So much conflict
 There is always conflcit. That's fine to an extent but it seems almolst always present in most areas. I would think that after an inital period of conlfict one a trade starts to take over the conflict lessens more and more. Perahps we need some kind of multual a cooperation conficlt avoidance adjustment? 
+
+## Borders
+Why would the borders become everywehre? Its like very square is lit up, or most squares. I would think that borders would be more clear and less shifty. I get that they change but after some time it's just a mess of yellw grid lines
+
+## Tick counter — FIXED (4c-next)
+We need a tick counter oin the UI.
+Added a live `tick` readout to #controls next to pop (hud.ts reads world.tick each frame).

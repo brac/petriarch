@@ -1,6 +1,6 @@
 # Petriarch
 
-**A browser-based artificial-life god game.** A population of agents genuinely *evolves* — their behavior and bodies are genome-driven, with no authored fitness function. You are a god who **perturbs** the world (bloom resources, drop hazards, smite a region) but never controls an individual. On top of the evolved substrate sit authored social systems — conflict, then trade — that agents *participate in* but do not invent.
+**A browser-based artificial-life god game.** A population of agents genuinely *evolves* — their behavior and bodies are genome-driven, with no authored fitness function. You are a god who **perturbs** the world (bloom resources, drop hazards, smite a region) but never controls an individual. On top of the evolved substrate sit authored social systems — conflict, then trade, then territory — that agents *participate in* but do not invent.
 
 The aesthetic is **cyber-net / netrunner**: agents are glowing nodes, kin-cohesion is drawn as lit network edges, lineages are hues, and a "tribe" looks like a lit-up mesh. Speciation is visible as colour drift.
 
@@ -12,7 +12,7 @@ The aesthetic is **cyber-net / netrunner**: agents are glowing nodes, kin-cohesi
 
 - **~20,000 agents** simulated on the GPU via **WebGPU / WGSL** (developed on an RTX 3090), rendered with **PixiJS v8**.
 - Agents carry genetic traits — size, metabolism, social connection, aggression — and forage a regrowing food field, consume, reproduce, and die. Selection is purely environmental: *agents that stay fed and breed leave more copies.* Nothing scores or hand-picks them.
-- **Emergent behavior you can watch:** same-lineage clumping, border conflict over food, predation niches, and the beginnings of **trade** between non-fighting groups across a dead zone.
+- **Emergent behavior you can watch:** same-lineage clumping, border conflict over food, predation niches, **trade** caravans that haul surplus between non-fighting groups across a dead zone — hardening roads as they go and cooling frontiers into pacified markets — and **territory**, where societies fight harder on their own turf and hold coherent borders. Conflict flares early, then recedes as commerce takes over.
 - Two first-class live controls — an **intensity** slider (how heavy each agent is: population, think-interval, neighbor budget) and a **sim-speed** slider (how fast the clock runs) — plus a **cognition** knob and a dev panel of live tunables.
 
 ## Architecture in one line

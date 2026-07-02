@@ -4,7 +4,8 @@
 // presence-weighted signature vector. Every tick: agents DEPOSIT into their cell, then
 // all four accumulators DIFFUSE (4-neighbor blend) and DECAY (fade) with identical
 // rates, so mean signature (claimSig/claimMag → the tribe's hue) is preserved while the
-// magnitude slowly fades. Render-only for now (netRenderer.drawClaim).
+// magnitude slowly fades. Rendered (netRenderer.drawClaim) and now read for gameplay:
+// conflict home-ground defense (T1) + steer claim-affinity, uploaded to the GPU (T2).
 
 import type { World } from "../../state/world";
 import { GENE, GENE_COUNT } from "../../data/genome";

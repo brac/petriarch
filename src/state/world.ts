@@ -77,7 +77,8 @@ export interface World {
   readonly resourceCapB: Float32Array;
   // Stigmergy `claim` (territory) field — continuous signature-accumulation, same
   // grid as resources. Mean signature = claimSig{A,B,C}/claimMag → the depositing
-  // tribe's hue. Deposited/diffused/decayed by tierB/stigmergy.ts; render-only.
+  // tribe's hue. Deposited/diffused/decayed by tierB/stigmergy.ts. Read by conflict
+  // (home-ground defense, T1) and uploaded for the steer kernel (claim-affinity, T2).
   readonly claimMag: Float32Array;
   readonly claimSigA: Float32Array;
   readonly claimSigB: Float32Array;

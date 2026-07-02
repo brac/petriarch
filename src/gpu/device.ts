@@ -21,11 +21,12 @@ export async function acquireGpuDevice(): Promise<GpuDevice | null> {
   try {
     const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) return null;
-    // Steer binds 12 storage buffers (the dual-nutrient set + packed supply-scent + packed carry/home
-    // state, P4a/c); metabolism binds 10. The default limit is 8. Request 12; if the adapter can't,
-    // requestDevice rejects → caught below → null → CPU fallback (the golden path works everywhere).
+    // Steer binds 13 storage buffers (the dual-nutrient set + packed supply-scent + packed carry/home
+    // state, P4a/c + packed claim/territory field, T2); metabolism binds 10. The default limit is 8.
+    // Request 13; if the adapter can't, requestDevice rejects → caught below → null → CPU fallback
+    // (the golden path works everywhere). Desktop adapters (the 3090 target) support far more than 13.
     const device = await adapter.requestDevice({
-      requiredLimits: { maxStorageBuffersPerShaderStage: 12 },
+      requiredLimits: { maxStorageBuffersPerShaderStage: 13 },
     });
     if (!device) return null;
     return { device, queue: device.queue };

@@ -27,6 +27,7 @@ import { STIGMERGY } from "../data/stigmergy";
 import { SCENT } from "../data/scent";
 import { CARAVAN } from "../data/caravan";
 import { BRIDGE } from "../data/bridge";
+import { TERRITORY } from "../data/territory";
 import { PASSABILITY } from "../data/passability";
 import { TICK_DT } from "../core/time";
 
@@ -117,12 +118,13 @@ export class GpuContext {
   private readonly scentBuf: GPUBuffer; // packed static supply-scent [scentA | scentB] (P4a)
   private readonly carryBuf: GPUBuffer; // packed per-agent carry/home state (P4c); steer reads it
   private readonly carryHost: Uint32Array; // scratch for packing carryState|homeGood (zero per-tick alloc)
+  private readonly claimBuf: GPUBuffer; // packed claim (territory) field [mag|sigA|sigB|sigC] (T2); steer reads it
   private readonly steerParamsBuf: GPUBuffer;
   private readonly steerOutBuf: GPUBuffer;
   private readonly steerOutRead: GPUBuffer;
   private readonly steerBindGroup: GPUBindGroup;
   private readonly pipeSteer: GPUComputePipeline;
-  private readonly steerParamsHost = new ArrayBuffer(64); // 14 used slots (P4c +travelScent) → 64-aligned
+  private readonly steerParamsHost = new ArrayBuffer(80); // 19 used slots (T2 +territory×4) → 80-aligned
   private readonly steerParamsU32 = new Uint32Array(this.steerParamsHost);
   private readonly steerParamsF32 = new Float32Array(this.steerParamsHost);
 
@@ -278,7 +280,10 @@ export class GpuContext {
     // Packed carry/home state, one u32 per agent (P4c); re-uploaded each think tick (Tier B mutates it).
     this.carryBuf = buf(capacity * u32, STORAGE | GPUBufferUsage.COPY_DST);
     this.carryHost = new Uint32Array(capacity);
-    this.steerParamsBuf = buf(64, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    // Packed claim (territory) field: 4×grid = [claimMag | claimSigA | claimSigB | claimSigC]. CPU-evolved
+    // (stigmergy.ts), re-uploaded each think tick (dynamic, like danger). steer climbs its affinity (T2).
+    this.claimBuf = buf(4 * RES_CELLS * f32, STORAGE | GPUBufferUsage.COPY_DST);
+    this.steerParamsBuf = buf(80, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     // COPY_DST too: integrate's verify uploads an explicit steer vector here.
     this.steerOutBuf = buf(capacity * STEER_STRIDE * f32, STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     this.steerOutRead = buf(capacity * STEER_STRIDE * f32, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
@@ -299,6 +304,7 @@ export class GpuContext {
         { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ],
     });
     this.pipeSteer = dev.createComputePipeline({
@@ -321,6 +327,7 @@ export class GpuContext {
         { binding: 10, resource: { buffer: this.energyBBuf } },
         { binding: 11, resource: { buffer: this.scentBuf } },
         { binding: 12, resource: { buffer: this.carryBuf } },
+        { binding: 13, resource: { buffer: this.claimBuf } },
       ],
     });
 
@@ -466,6 +473,10 @@ export class GpuContext {
     this.steerParamsF32[12] = SCENT.provisionFloor; // P4b provisioning gate floor
     this.steerParamsF32[13] = CARAVAN.travelScent; // P4c committed-traveller scent weight
     this.steerParamsF32[14] = BRIDGE.attractPull; // active road-steering: pull committed carriers onto lanes
+    this.steerParamsF32[15] = TERRITORY.steerWeight; // T2: claim-affinity steer weight
+    this.steerParamsF32[16] = TERRITORY.minMag; // T2: neutral-land claim-magnitude cutoff
+    this.steerParamsF32[17] = TERRITORY.foreignRepel; // T2: enemy-turf negative-affinity factor
+    this.steerParamsF32[18] = SIM.sigThreshold; // T2: affinity match normalizer (same-group threshold)
     this.queue.writeBuffer(this.steerParamsBuf, 0, this.steerParamsHost);
   }
 
@@ -849,6 +860,18 @@ export class GpuContext {
   /** Upload the passability field (read-only; integrate blocks/throttles the step). */
   uploadPassability(passability: Float32Array): void {
     this.queue.writeBuffer(this.passabilityBuf, 0, passability as Float32Array<ArrayBuffer>, 0, RES_CELLS);
+  }
+
+  /** Upload the packed claim (territory) field [claimMag | claimSigA | claimSigB | claimSigC] (T2;
+   *  steer climbs its affinity gradient to hold turf). DYNAMIC — call each think tick (claim evolves
+   *  every tick in stigmergy.ts), like danger/roadAttract. */
+  uploadClaim(mag: Float32Array, sigA: Float32Array, sigB: Float32Array, sigC: Float32Array): void {
+    const f32 = Float32Array.BYTES_PER_ELEMENT;
+    const N = RES_CELLS;
+    this.queue.writeBuffer(this.claimBuf, 0, mag as Float32Array<ArrayBuffer>, 0, N);
+    this.queue.writeBuffer(this.claimBuf, N * f32, sigA as Float32Array<ArrayBuffer>, 0, N);
+    this.queue.writeBuffer(this.claimBuf, 2 * N * f32, sigB as Float32Array<ArrayBuffer>, 0, N);
+    this.queue.writeBuffer(this.claimBuf, 3 * N * f32, sigC as Float32Array<ArrayBuffer>, 0, N);
   }
 
   /**

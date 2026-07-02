@@ -26,6 +26,12 @@ export class Agents {
    *  diagnostics for the 3b study; not serialized. */
   fightTotal = 0;
   fightSuppressedTotal = 0;
+  /** Cumulative home-ground-defense diagnostics (conflict.ts) — Territory T1 study; not serialized.
+   *  homeContestTotal = fights where the two combatants had a meaningfully different home-match (one
+   *  is more "at home" than the other); homeWinTotal = of those, the more-home combatant won. The
+   *  ratio = defender-win-rate: ~0.5 with defBonus 0, climbs as home-ground defense strengthens. */
+  homeContestTotal = 0;
+  homeWinTotal = 0;
   /** Cumulative caravan round-trip transitions (caravan.ts) — P4c diagnostics; not serialized.
    *  caravanLoaded = OUTBOUND→RETURN flips (loaded the far good); caravanDelivered = RETURN→FORAGE
    *  flips (made it home). delivered/k is the true round-trip-completion rate (carry% is a misleading

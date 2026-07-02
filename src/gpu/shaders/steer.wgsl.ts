@@ -21,6 +21,9 @@ const G_SE = 7u;   // SEPARATION
 const G_RA = 8u;   // RESOURCE_ATTRACT
 const G_TA = 9u;   // THREAT_AVOID
 const G_WA = 10u;  // WANDER
+const G_SIG_A = 12u; // signature (group identity) — read by the territory affinity term
+const G_SIG_B = 13u;
+const G_SIG_C = 14u;
 const SENSE_STRIDE = 7u;
 const TAU = 6.2831853071795864;
 
@@ -32,6 +35,7 @@ const COG_AVOID  = 8u;
 const COG_WANDER = 16u;
 const COG_DANGER = 32u;
 const COG_DEMAND = 64u; // long-range supply-scent climb (P4a)
+const COG_TERRITORY = 128u; // claim-affinity climb — hold own tribal turf (T2)
 
 struct Params {
   count    : u32,
@@ -49,6 +53,10 @@ struct Params {
   provisionFloor : f32, // P4b: reserve floor below which an agent won't undertake the crossing
   travelScent : f32, // P4c: committed-traveller scent weight (replaces scentWeight when carrying)
   attractPull : f32, // active road-steering: pull weight toward the road-attraction basin (committed)
+  territoryWeight : f32, // T2: claim-affinity steer weight (× KIN_COHESION × level)
+  territoryMinMag : f32, // T2: claim magnitude below which a cell is neutral (no pull)
+  foreignRepel : f32,    // T2: enemy-turf negative-affinity factor (push invaders out)
+  sigT : f32,            // signature same-group threshold (affinity match normalizer)
 };
 
 @group(0) @binding(0) var<uniform>             P        : Params;
@@ -67,6 +75,9 @@ struct Params {
 // Packed carry state per agent (P4c): bits[0:1] = carryState (0 forage,1 return,2 outbound),
 // bit[2] = homeGood (0=A,1=B). Mirrors CPU pools carryState/homeGood; set by tierB/caravan.ts.
 @group(0) @binding(12) var<storage, read>      carry    : array<u32>;
+// Packed claim (territory) field: [claimMag | claimSigA | claimSigB | claimSigC], each nCells (T2).
+// CPU-evolved (stigmergy.ts) then uploaded each think tick like danger/roadAttract.
+@group(0) @binding(13) var<storage, read>      claim    : array<f32>;
 
 fn hashU32(x: u32) -> u32 {
   var v = x;
@@ -76,6 +87,22 @@ fn hashU32(x: u32) -> u32 {
   v = v * 0x27d4eb2du;
   v = v ^ (v >> 15u);
   return v;
+}
+
+// Claim affinity of cell c (nCells = grid cell count) for an agent of signature (sa,sb,sc): mirrors
+// claimAffinity in sim/tierA/steer.ts. claimMag·(match − foreignRepel·(1−match)); positive on own
+// dense turf, negative on foreign turf (foreignRepel>0), 0 on unclaimed land (mag<minMag). (T2)
+fn claimAffinity(c: u32, nCells: u32, sa: f32, sb: f32, sc: f32) -> f32 {
+  let m = claim[c];
+  // guard m <= 0 too: minMag can be 0, and an unclaimed cell (m == 0) would reach 1/0 → NaN. Mirrors
+  // the CPU homeMatch/claimAffinity guard so the two stay bit-identical.
+  if (m < P.territoryMinMag || m <= 0.0) { return 0.0; }
+  let inv = 1.0 / m;
+  let dA = claim[nCells + c] * inv - sa;
+  let dB = claim[(2u * nCells) + c] * inv - sb;
+  let dC = claim[(3u * nCells) + c] * inv - sc;
+  let mt = clamp(1.0 - sqrt((dA * dA) + (dB * dB) + (dC * dC)) / P.sigT, 0.0, 1.0);
+  return m * (mt - P.foreignRepel * (1.0 - mt));
 }
 
 @compute @workgroup_size(64)
@@ -224,6 +251,32 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (l > 1e-4) { dmx = dmx / l; dmy = dmy / l; } else { dmx = 0.0; dmy = 0.0; }
   }
 
+  // --- claim-affinity gradient (Territory T2): climb toward the agent's own dense turf. Sample the
+  // affinity field at the 4-neighbour cells and point toward the richer one — hold tribal territory,
+  // don't drift into foreign/empty ground → borders harden. Mirrors CPU steer.ts. (TERRITORY off skips.)
+  let onTerritory = (P.cogMask & COG_TERRITORY) != 0u;
+  var tgx = 0.0;
+  var tgy = 0.0;
+  if (onTerritory) {
+    let gw = i32(P.resGridW);
+    let gh = i32(P.resGridH);
+    let nCells = u32(gw * gh);
+    var cx = clamp(i32(floor(xi / P.resCellW)), 0, gw - 1);
+    var cy = clamp(i32(floor(yi / P.resCellH)), 0, gh - 1);
+    let xl = select(cx, cx - 1, cx > 0);
+    let xr = select(cx, cx + 1, cx < gw - 1);
+    let yu = select(cy, cy - 1, cy > 0);
+    let yd = select(cy, cy + 1, cy < gh - 1);
+    let rowc = cy * gw;
+    let sa = genes[i * GENE_COUNT + G_SIG_A];
+    let sb = genes[i * GENE_COUNT + G_SIG_B];
+    let sc = genes[i * GENE_COUNT + G_SIG_C];
+    tgx = claimAffinity(u32(rowc + xr), nCells, sa, sb, sc) - claimAffinity(u32(rowc + xl), nCells, sa, sb, sc);
+    tgy = claimAffinity(u32((yd * gw) + cx), nCells, sa, sb, sc) - claimAffinity(u32((yu * gw) + cx), nCells, sa, sb, sc);
+    let l = sqrt((tgx * tgx) + (tgy * tgy));
+    if (l > 1e-4) { tgx = tgx / l; tgy = tgy / l; } else { tgx = 0.0; tgy = 0.0; }
+  }
+
   // --- wander: a per-agent seeded unit vector (GPU determinism domain) ---
   let h = hashU32((i * 2654435761u) ^ P.seed);
   let ang = (f32(h) / 4294967296.0) * TAU;
@@ -252,10 +305,12 @@ fn steerMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   // road attraction: a committed carrier converges onto the nearest lane (universal × level, not
   // gene-scaled — every carrier uses the bridge). Composes with dm (scent moves it along). Mirrors CPU.
   let rp = select(0.0, P.attractPull * lvl, onDemand && committed);
+  // territory-affinity shares KIN_COHESION (tribalism); zeroed for committed carriers (mirrors CPU).
+  let tw = select(0.0, genes[bi + G_KC] * lvl * P.territoryWeight, onTerritory && !committed);
   let wa = select(0.0, genes[bi + G_WA], (P.cogMask & COG_WANDER) != 0u);
 
-  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + wa * wx;
-  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + wa * wy;
+  var dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + tw * tgx + wa * wx;
+  var dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + tw * tgy + wa * wy;
   let l = sqrt(dx * dx + dy * dy);
   if (l > 1e-4) { dx = dx / l; dy = dy / l; } else { dx = 0.0; dy = 0.0; }
 

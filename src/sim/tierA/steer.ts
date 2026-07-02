@@ -14,12 +14,38 @@ import {
 } from "../../data/capacity";
 import { COG, COGNITION } from "../../data/cognition";
 import { STIGMERGY } from "../../data/stigmergy";
+import { TERRITORY } from "../../data/territory";
 import { SCENT } from "../../data/scent";
 import { CARAVAN } from "../../data/caravan";
 import { BRIDGE } from "../../data/bridge";
 import { SIM } from "../../data/sim";
 
 const TAU = Math.PI * 2;
+
+// Claim affinity of cell `c` for an agent of signature (sa,sb,sc): claimMag · (match − foreignRepel·
+// (1−match)), where match = clamp(1 − |cell mean signature − agent signature| / sigT, 0, 1). On the
+// agent's own dense turf (match→1) it's strongly POSITIVE (attract); on foreign turf (match→0) it's
+// NEGATIVE when foreignRepel>0 (actively push invaders out); unclaimed land (mag<minMag) is 0
+// (neutral). Climbing its gradient pulls toward own territory and away from foreign ground (border-
+// hardening, T2). Zero-alloc top-level fn with a WGSL-portable body (mechanical port in T2b).
+function claimAffinity(
+  mag: Float32Array, sigA: Float32Array, sigB: Float32Array, sigC: Float32Array,
+  c: number, sa: number, sb: number, sc: number, minMag: number, sigT: number, foreignRepel: number,
+): number {
+  const m = mag[c]!;
+  // `m <= 0` guard mirrors conflict.ts homeMatch: minMag can be slid to 0, and an unclaimed cell
+  // (m == 0) would then reach 1/0 → NaN. Downstream the steer normalizer sanitizes it, but guarding
+  // here keeps this fn bit-identical to the WGSL claimAffinity and free of NaN in the first place.
+  if (m < minMag || m <= 0) return 0;
+  const inv = 1 / m;
+  const dA = sigA[c]! * inv - sa;
+  const dB = sigB[c]! * inv - sb;
+  const dC = sigC[c]! * inv - sc;
+  let match = 1 - Math.sqrt(dA * dA + dB * dB + dC * dC) / sigT;
+  if (match < 0) match = 0;
+  else if (match > 1) match = 1;
+  return m * (match - foreignRepel * (1 - match));
+}
 
 export function steer(world: World): void {
   const a = world.agents;
@@ -31,6 +57,15 @@ export function steer(world: World): void {
   const scB = world.scentB;
   const roadAtt = world.roadAttract;
   const attractPull = BRIDGE.attractPull;
+  // Territory (claim-affinity steering, T2): the claim field becomes a steer input.
+  const claimMag = world.claimMag;
+  const claimSigA = world.claimSigA;
+  const claimSigB = world.claimSigB;
+  const claimSigC = world.claimSigC;
+  const territoryWeight = TERRITORY.steerWeight;
+  const territoryMinMag = TERRITORY.minMag;
+  const territoryForeignRepel = TERRITORY.foreignRepel;
+  const sigT = SIM.sigThreshold;
   const rng = world.rng;
   const gw = RESOURCE_GRID_W;
   const gh = RESOURCE_GRID_H;
@@ -47,6 +82,7 @@ export function steer(world: World): void {
   const onWander = (mask & COG.WANDER) !== 0;
   const onDanger = (mask & COG.DANGER) !== 0;
   const onDemand = (mask & COG.DEMAND) !== 0;
+  const onTerritory = (mask & COG.TERRITORY) !== 0;
   const scentWeight = SCENT.weight;
   const provFloor = SCENT.provisionFloor;
   const provSpan = 1 - provFloor;
@@ -243,6 +279,41 @@ export function steer(world: World): void {
       }
     }
 
+    // --- claim-affinity gradient (Territory T2): climb toward the agent's own dense turf. Sample the
+    // affinity field A_i = claimMag·match at the 4-neighbour cells and point toward the richer one, so
+    // an agent stays on / returns to tribal territory and is not drawn into foreign or empty ground —
+    // societies stop interpenetrating and the hue-border sharpens. (TERRITORY off => skip the samples.) ---
+    let tgx = 0;
+    let tgy = 0;
+    if (onTerritory) {
+      let cx = (xi / RES_CELL_W) | 0;
+      if (cx < 0) cx = 0;
+      else if (cx >= gw) cx = gw - 1;
+      let cy = (yi / RES_CELL_H) | 0;
+      if (cy < 0) cy = 0;
+      else if (cy >= gh) cy = gh - 1;
+      const xl = cx > 0 ? cx - 1 : cx;
+      const xr = cx < gw - 1 ? cx + 1 : cx;
+      const yu = cy > 0 ? cy - 1 : cy;
+      const yd = cy < gh - 1 ? cy + 1 : cy;
+      const rowc = cy * gw;
+      const sa = genes[bi + GENE.SIG_A]!;
+      const sb = genes[bi + GENE.SIG_B]!;
+      const sc = genes[bi + GENE.SIG_C]!;
+      tgx = claimAffinity(claimMag, claimSigA, claimSigB, claimSigC, rowc + xr, sa, sb, sc, territoryMinMag, sigT, territoryForeignRepel)
+          - claimAffinity(claimMag, claimSigA, claimSigB, claimSigC, rowc + xl, sa, sb, sc, territoryMinMag, sigT, territoryForeignRepel);
+      tgy = claimAffinity(claimMag, claimSigA, claimSigB, claimSigC, yd * gw + cx, sa, sb, sc, territoryMinMag, sigT, territoryForeignRepel)
+          - claimAffinity(claimMag, claimSigA, claimSigB, claimSigC, yu * gw + cx, sa, sb, sc, territoryMinMag, sigT, territoryForeignRepel);
+      const l = Math.sqrt(tgx * tgx + tgy * tgy);
+      if (l > 1e-4) {
+        tgx /= l;
+        tgy /= l;
+      } else {
+        tgx = 0;
+        tgy = 0;
+      }
+    }
+
     // --- wander: a seeded unit vector. Always advance the shared RNG stream so it
     // stays deterministic regardless of the WANDER toggle; gate the contribution. ---
     const ang = rng.next() * TAU;
@@ -269,10 +340,14 @@ export function steer(world: World): void {
     // road attraction: a committed carrier converges onto the nearest road lane (universal × level, not
     // gene-scaled — every carrier uses the bridge). Composes with dm (scent moves it along the lane).
     const rp = onDemand && committed ? attractPull * level : 0;
+    // territory-affinity shares the KIN_COHESION gene (tribalism): the same drive that pulls toward
+    // kin now also holds turf. Zeroed for committed carriers — a trade mission must not be pulled home
+    // (like kin-cohesion). The homebody-defender vs wanderer-trader tradeoff lives on this gene.
+    const tw = onTerritory && !committed ? genes[bi + GENE.KIN_COHESION]! * level * territoryWeight : 0;
     const wa = onWander ? genes[bi + GENE.WANDER]! : 0;
 
-    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + wa * wx;
-    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + wa * wy;
+    let dx = kc * cohX + se * sepX + ra * rgx + ta * avX + da * dgx + dm * dmx + rp * raX + tw * tgx + wa * wx;
+    let dy = kc * cohY + se * sepY + ra * rgy + ta * avY + da * dgy + dm * dmy + rp * raY + tw * tgy + wa * wy;
 
     const l = Math.sqrt(dx * dx + dy * dy);
     if (l > 1e-4) {

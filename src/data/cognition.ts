@@ -23,9 +23,10 @@ export const COG = {
   WANDER: 1 << 4, // seeded random wander (WANDER)
   DANGER: 1 << 5, // stigmergy danger-field descend — flee death zones (THREAT_AVOID)
   DEMAND: 1 << 6, // long-range demand-field climb — haul surplus to where it's wanted (RESOURCE_ATTRACT)
+  TERRITORY: 1 << 7, // claim-field affinity climb — stay on/return to own tribal turf (KIN_COHESION)
 } as const;
 
-export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER | COG.DANGER | COG.DEMAND;
+export const COG_ALL = COG.FOOD | COG.KIN | COG.SEP | COG.AVOID | COG.WANDER | COG.DANGER | COG.DEMAND | COG.TERRITORY;
 
 /** Mutated live by HUD slider / dev-panel toggles / preset buttons. */
 export const COGNITION = {

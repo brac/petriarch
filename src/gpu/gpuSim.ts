@@ -51,7 +51,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
   // and the hash is current — so god commands apply cleanly, then get uploaded below.
   drainGod(world); // 0 — apply buffered god perturbations before the GPU upload
   resources(world); // 1 — Tier B: regrow the field, age out the hazard
-  stigmergy(world); // 1b — claim/territory + caravan trail (CPU; claim never goes to the GPU)
+  stigmergy(world); // 1b — claim/territory + caravan trail (CPU-evolved; claim now uploaded for steer, T2)
   bridge(world); // 1c — harden trail into road; written into passability, uploaded below for GPU integrate
   const tAfterRes = performance.now();
 
@@ -65,6 +65,7 @@ export async function simStepGpu(world: World, gpu: GpuContext): Promise<void> {
     gpu.uploadScent(world.scentA, world.scentB); // static supply-scent (P4a); steer climbs it
     gpu.uploadRoadAttract(world.roadAttract); // road-attraction basin (active road-steering); per-tick
     gpu.uploadCarry(a.carryState, a.homeGood, count); // carry/home state (P4c); steer state-branches on it
+    gpu.uploadClaim(world.claimMag, world.claimSigA, world.claimSigB, world.claimSigC); // territory (T2); steer holds turf
 
     const senseP = {
       budget: world.intensity.neighborBudget,
@@ -158,7 +159,7 @@ export class GpuPipeline {
     // hash) and BEFORE the upload below — otherwise the readback would clobber the edits.
     drainGod(world);
     resources(world);
-    stigmergy(world); // claim/territory + caravan trail (CPU; claim never goes to the GPU)
+    stigmergy(world); // claim/territory + caravan trail (CPU-evolved; claim now uploaded for steer, T2)
     bridge(world); // harden trail into road; written into passability, uploaded below for GPU integrate
     const count = a.count;
     if (count > 0) {
@@ -170,6 +171,7 @@ export class GpuPipeline {
       this.gpu.uploadScent(world.scentA, world.scentB); // static supply-scent (P4a); steer climbs it
       this.gpu.uploadRoadAttract(world.roadAttract); // road-attraction basin (active road-steering); per-tick
       this.gpu.uploadCarry(a.carryState, a.homeGood, count); // carry/home state (P4c); steer state-branches
+      this.gpu.uploadClaim(world.claimMag, world.claimSigA, world.claimSigB, world.claimSigC); // territory (T2)
       const senseP = {
         budget: world.intensity.neighborBudget,
         senseR2: SIM.senseRadius * SIM.senseRadius,

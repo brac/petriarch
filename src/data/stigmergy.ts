@@ -8,8 +8,9 @@
 // First channel: `claim` (territory). Species-tagged by continuous signature
 // accumulation — each cell holds a presence magnitude plus the presence-weighted
 // signature vector, so mean signature = sigSum/mag maps to the depositing tribe's
-// own hue. Render-only for now (nothing steers on it yet); claim never touches the
-// GPU. `danger` and `trail` channels land later.
+// own hue. Now gives the field teeth (Territory): conflict reads it for home-ground
+// defense (T1) and the steer kernel climbs its affinity gradient (T2, uploaded to the
+// GPU each think tick). `danger` and `trail` are the later channels.
 
 export const STIGMERGY = {
   // claim (territory) — slow decay so territory persists; modest diffusion so a

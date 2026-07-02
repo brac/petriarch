@@ -10,6 +10,7 @@ import { GENE, GENE_COUNT } from "../../data/genome";
 import { SIM } from "../../data/sim";
 import { CONFLICT } from "../../data/conflict";
 import { AMITY } from "../../data/amity";
+import { TERRITORY } from "../../data/territory";
 import { MORPH } from "../../data/morphology";
 import { STIGMERGY } from "../../data/stigmergy";
 import { NEIGHBOR_STRIDE } from "../../state/pools";
@@ -17,6 +18,31 @@ import { resCellIndex } from "../grid";
 
 // Reused scratch for the own-query (non-think-tick) path — zero alloc per call.
 const ownNbr: number[] = [];
+
+// Below this |homeI - homeJ| a contest doesn't inform the defender-win-rate diagnostic (both
+// combatants equally at-home or equally away) — don't count it in the study ratio.
+const HOME_CONTEST_EPS = 0.05;
+
+// Home-ground match ∈ [0,1]: how well signature (sa,sb,sc) matches the claim on cell `c`. 1 = the
+// cell is held by your own kind (mean claim signature within the same-group threshold), 0 = a full
+// sigThreshold away OR the cell is neutral ground (claim magnitude below minMag). Zero-alloc; the
+// arrays and scalars are passed in so this stays a plain top-level function, not a hot-path closure.
+function homeMatch(
+  mag: Float32Array, sigA: Float32Array, sigB: Float32Array, sigC: Float32Array,
+  c: number, sa: number, sb: number, sc: number, minMag: number, sigT: number,
+): number {
+  const m = mag[c]!;
+  // `m <= 0` as well as `m < minMag`: minMag can be slid to 0 in the dev panel, and an unclaimed cell
+  // (m == 0, sig == 0) would then pass `m < minMag` and hit 1/0 → 0*Infinity = NaN, which propagates
+  // into si/sj and silently corrupts the `si >= sj` fight resolution (NaN comparisons are false).
+  if (m < minMag || m <= 0) return 0;
+  const inv = 1 / m;
+  const dA = sigA[c]! * inv - sa;
+  const dB = sigB[c]! * inv - sb;
+  const dC = sigC[c]! * inv - sc;
+  const h = 1 - Math.sqrt(dA * dA + dB * dB + dC * dC) / sigT;
+  return h < 0 ? 0 : h > 1 ? 1 : h;
+}
 
 // Runs EVERY tick so conflict pressure is intensity-invariant (it no longer rides
 // on the think cadence). On a think tick it reuses the neighbor cache sense just
@@ -29,6 +55,13 @@ export function conflict(world: World, useCache: boolean): void {
   const danger = world.danger;
   const amity = world.amity;
   const amitySuppress = AMITY.suppress;
+  // Territory (home-ground defense): the claim field becomes a conflict modifier.
+  const claimMag = world.claimMag;
+  const claimSigA = world.claimSigA;
+  const claimSigB = world.claimSigB;
+  const claimSigC = world.claimSigC;
+  const defBonus = TERRITORY.defBonus;
+  const territoryMinMag = TERRITORY.minMag;
   const hash = world.hash;
   const rng = world.rng;
   const sparks = world.sparks;
@@ -98,10 +131,21 @@ export function conflict(world: World, useCache: boolean): void {
         continue; // neither willing enough to fight here
       }
 
-      // Resolve: stronger SIZE×aggression (with a seeded roll) wins.
+      // Resolve: stronger SIZE×aggression (with a seeded roll) wins — plus HOME-GROUND DEFENSE:
+      // each fighter is boosted by how well its signature matches the claim on the cell it stands on
+      // (Territory T1). A defender deep in its own turf fights up to (1+defBonus)× as hard; an invader
+      // on foreign/neutral ground gets no bonus → borders harden, invasions get repelled. The edge is
+      // purely local, so it taxes mobility (raiders/carriers fight weak abroad) — the tradeoff.
       const sizj = genes[bj + GENE.SIZE]!;
-      const si = sizi * (0.5 + aggi) * (0.5 + rng.next());
-      const sj = sizj * (0.5 + aggj) * (0.5 + rng.next());
+      const homeI = homeMatch(claimMag, claimSigA, claimSigB, claimSigC, ci, sa, sb, sc, territoryMinMag, sigT);
+      const cj = resCellIndex(posX[j]!, posY[j]!);
+      const homeJ = homeMatch(claimMag, claimSigA, claimSigB, claimSigC, cj,
+        genes[bj + GENE.SIG_A]!, genes[bj + GENE.SIG_B]!, genes[bj + GENE.SIG_C]!, territoryMinMag, sigT);
+      // rng draws stay in i-then-j order so defBonus 0 is bit-identical to pre-Territory behavior.
+      const rollI = rng.next();
+      const rollJ = rng.next();
+      const si = sizi * (0.5 + aggi) * (0.5 + rollI) * (1 + defBonus * homeI);
+      const sj = sizj * (0.5 + aggj) * (0.5 + rollJ) * (1 + defBonus * homeJ);
       let winner: number;
       let loser: number;
       let winSize: number;
@@ -147,6 +191,13 @@ export function conflict(world: World, useCache: boolean): void {
       fightCd[i] = CONFLICT.cooldownTicks;
       fightCd[j] = CONFLICT.cooldownTicks;
       a.fightTotal++;
+      // Defender-win-rate diagnostic: for contests where one fighter is meaningfully more at-home,
+      // did the more-home combatant win? ratio homeWin/homeContest = ~0.5 at defBonus 0, rises with it.
+      if (homeI - homeJ > HOME_CONTEST_EPS || homeJ - homeI > HOME_CONTEST_EPS) {
+        a.homeContestTotal++;
+        const moreHome = homeI > homeJ ? i : j;
+        if (winner === moreHome) a.homeWinTotal++;
+      }
 
       // Emit a spark at the seam.
       if (sparks.count < maxSparks) {

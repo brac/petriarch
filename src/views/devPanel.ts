@@ -16,6 +16,7 @@ import { COSTS } from "../data/costs";
 import { CONFLICT } from "../data/conflict";
 import { RESOURCES } from "../data/resources";
 import { STIGMERGY } from "../data/stigmergy";
+import { TERRITORY } from "../data/territory";
 import { TRAIL } from "../data/trail";
 import { BRIDGE } from "../data/bridge";
 import { COG, COGNITION, COG_PRESETS } from "../data/cognition";
@@ -55,6 +56,14 @@ const TUNABLES: Tunable[] = [
   { group: "Territory", label: "decay", min: 0.9, max: 1, step: 0.001, get: () => STIGMERGY.claimDecay, set: (v) => { STIGMERGY.claimDecay = v; } },
   { group: "Territory", label: "renderAlpha", min: 0, max: 1, step: 0.02, get: () => STIGMERGY.claimRenderAlpha, set: (v) => { STIGMERGY.claimRenderAlpha = v; } },
   { group: "Territory", label: "renderMagFull", min: 0.5, max: 12, step: 0.5, get: () => STIGMERGY.claimRenderMagFull, set: (v) => { STIGMERGY.claimRenderMagFull = v; } },
+  // Home-ground defense (T1): claim becomes a conflict modifier — a defender on its own turf fights
+  // harder. defBonus 0 = off (claim render-only). Purely local → taxes mobility (the tradeoff).
+  { group: "Territory", label: "defBonus", min: 0, max: 2, step: 0.05, get: () => TERRITORY.defBonus, set: (v) => { TERRITORY.defBonus = v; } },
+  { group: "Territory", label: "defMinMag", min: 0, max: 3, step: 0.1, get: () => TERRITORY.minMag, set: (v) => { TERRITORY.minMag = v; } },
+  // Claim-affinity STEERING (T2): agents pulled toward own turf → borders harden. 0.3 = tuned sweet
+  // spot (inverted-U). foreignRepel>0 pushes off enemy turf (study: doesn't help, keep 0).
+  { group: "Territory", label: "steerWeight", min: 0, max: 1.5, step: 0.05, get: () => TERRITORY.steerWeight, set: (v) => { TERRITORY.steerWeight = v; } },
+  { group: "Territory", label: "foreignRepel", min: 0, max: 2, step: 0.1, get: () => TERRITORY.foreignRepel, set: (v) => { TERRITORY.foreignRepel = v; } },
 
   // Danger (death-zone) field. Deposited on death; steer descends it (flee), gated by THREAT_AVOID.
   { group: "Danger", label: "perDamage", min: 0, max: 3, step: 0.05, get: () => STIGMERGY.dangerPerDamage, set: (v) => { STIGMERGY.dangerPerDamage = v; } },

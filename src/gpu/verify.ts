@@ -277,6 +277,7 @@ export async function verifySteer(world: World, gpu: GpuContext): Promise<SteerV
   gpu.senseBuild(snapGenes, count, { budget, senseR2, sepR2, sigT });
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live gpuSim upload (P4a)
   gpu.uploadRoadAttract(snapRoadAtt); // mirror the live per-tick road-attraction upload
+  gpu.uploadClaim(world.claimMag, world.claimSigA, world.claimSigB, world.claimSigC); // territory (T2); steer holds turf
   gpu.steerBuild(snapRes, snapResB, snapDanger, snapEnergy, snapEnergyB, snapCarry, snapHome, count, world.tick);
   const gs = await gpu.readSteer();
 
@@ -580,6 +581,7 @@ export async function verifyChain(world: World, gpu: GpuContext): Promise<ChainV
   gpu.uploadScent(world.scentA, world.scentB); // steer climbs it; mirror the live upload (P4a)
   gpu.uploadRoadAttract(snapRoadAtt); // active road-steering basin; mirror the live per-tick upload
   gpu.uploadCarry(snapCarry, snapHome, count); // carry/home state (P4c); steer state-branches on it
+  gpu.uploadClaim(world.claimMag, world.claimSigA, world.claimSigB, world.claimSigC); // territory (T2); steer holds turf
   gpu.runTierA(count, true, world.tick, senseP, hazP);
   const g = await gpu.downloadState();
 

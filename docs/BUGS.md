@@ -195,8 +195,19 @@ Could we select an indivial agent and get data on it or is that difficult?
 AT 12k agents on gpu we are running 24fps 70-140 heap, gpu 30 tierB 16 confl 12 repr 2.7 death .8 hast .6-1
 Seems slow. Could we improve preformance at all?
 
-## So much conflict
-There is always conflcit. That's fine to an extent but it seems almolst always present in most areas. I would think that after an inital period of conlfict one a trade starts to take over the conflict lessens more and more. Perahps we need some kind of multual a cooperation conficlt avoidance adjustment? 
+## So much conflict — INVESTIGATED: it already recedes (perception gap)
+There is always conflcit. That's fine to an extent but it seems almolst always present in most areas. I would think that after an inital period of conlfict one a trade starts to take over the conflict lessens more and more. Perahps we need some kind of multual a cooperation conficlt avoidance adjustment?
+
+Study (src/tools/conflictcheck.ts, seed 11, 20k ticks, 2k windows): conflict DOES do exactly
+this. Initial boom (fgt/k peaks 8338 @ ~window 2), then lessens more and more — per-capita
+fights fall −70% (1.25→0.38 fights/k per agent) and even RAW fgt/k drops −57% from peak
+(8338→3573) while pop keeps GROWING (7233→9531). Trade stays active throughout. The mechanic
+works; the gap is PERCEPTION — a mature world still shows ~3500 fights/k in absolute terms (many
+on-screen sparks) so it reads as "always conflict" even as it pacifies per-capita. The border
+mess (now fixed) compounded the impression.
+OPEN (needs a direction call): make the recession LEGIBLE (a HUD conflict-rate / peace readout so
+the player watches it decline — like the tick counter, display-only, Rule-10 safe) and/or tune
+the recession steeper (amity decay↑) if the felt arc still isn't strong enough in play.
 
 ## Borders — FIXED (border overlay legibility)
 Why would the borders become everywehre? Its like very square is lit up, or most squares. I would think that borders would be more clear and less shifty. I get that they change but after some time it's just a mess of yellw grid lines

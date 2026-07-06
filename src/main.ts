@@ -22,7 +22,32 @@ import { GpuPipeline, gpuTiming } from "./gpu/gpuSim";
 // with ?seed=N in the URL.
 const DEFAULT_SEED = 0x5eed;
 
+// Cheap probe: can this browser give us a WebGL context at all? Pixi is configured
+// `preference: "webgl"`, so no context = no renderer = a black screen. We check up front
+// (and treat any renderer-init failure the same way below) and show the #unsupported
+// landing panel instead of a dead canvas.
+function hasWebGL(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function showUnsupported(): void {
+  document.getElementById("unsupported")?.classList.add("show");
+}
+
 function main(): void {
+  if (!hasWebGL()) {
+    showUnsupported();
+    return;
+  }
+
   const appEl = document.getElementById("app");
   const perfEl = document.getElementById("perf");
   const intensityEl = document.getElementById("intensity");
@@ -183,10 +208,19 @@ function main(): void {
     }
   });
 
-  void renderer.init(appEl).then(() => {
-    wireGodTools(appEl, renderer, world);
-    loop.start();
-  });
+  void renderer
+    .init(appEl)
+    .then(() => {
+      wireGodTools(appEl, renderer, world);
+      loop.start();
+    })
+    .catch((err) => {
+      // WebGL passed the probe but Pixi still couldn't stand up a renderer (driver
+      // quirk, lost context, blocklisted GPU). Show the landing panel, not a black screen.
+      // eslint-disable-next-line no-console
+      console.error("Petriarch: renderer init failed", err);
+      showUnsupported();
+    });
 }
 
 // God toolkit — the player perturbs the world, never an individual. Input only ENQUEUES

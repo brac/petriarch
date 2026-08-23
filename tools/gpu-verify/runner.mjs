@@ -64,9 +64,12 @@ const result = await page.evaluate(async () => {
 
     // --- loop stability: GPU async sim vs CPU loop, fresh worlds, same seed ---
     const { simStepGpu, GpuPipeline } = await import("/src/gpu/gpuSim.ts");
+    // Stride and gene index come from the contract, never a literal: CLAUDE.md
+    // rule 3 is genes[i * GENE_COUNT + GENE.X], and this file used to hardcode 15.
+    const { GENE, GENE_COUNT } = await import("/src/data/genome.ts");
     const mkWorld = (seed) => { const w = createWorld(seed); initResourceField(w); seedPopulation(w); w.intensity.neighborBudget = 64; return w; };
     const N = 200, sample = 50;
-    const meanSize = (w) => { let s = 0; const a = w.agents, n = a.count; for (let i = 0; i < n; i++) s += a.genes[i * 15]; return n ? +(s / n).toFixed(3) : 0; };
+    const meanSize = (w) => { let s = 0; const a = w.agents, n = a.count; for (let i = 0; i < n; i++) s += a.genes[i * GENE_COUNT + GENE.SIZE]; return n ? +(s / n).toFixed(3) : 0; };
     const wg = mkWorld(0x5eed); const gpuPops = [];
     for (let t = 0; t < N; t++) { await simStepGpu(wg, ctx); if (t % sample === sample - 1) gpuPops.push(wg.agents.count); }
     const wc = mkWorld(0x5eed); const cpuPops = [];

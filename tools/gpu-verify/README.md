@@ -8,7 +8,10 @@ checks *correctness* (the GPU determinism domain), not performance.
 
 `runner.mjs` loads the Vite dev server, then `page.evaluate`s a fresh world
 (`createWorld → initResourceField → seedPopulation → simStep`), sets max intensity,
-creates a `GpuContext`, and runs `verifyHash` / `verifySense`, printing JSON.
+creates a `GpuContext`, and runs every verify in `src/gpu/verify.ts` — `verifyHash`,
+`verifySense`, `verifySteer` (twice: default mask and a masked cognition config),
+`verifyIntegrate`, `verifyMetabolism`, `verifyChain` — plus a loop-stability
+comparison of `simStepGpu` / `GpuPipeline` against the CPU loop, printing JSON.
 
 ## One-time setup (kept OUT of the project to avoid touching node_modules)
 
@@ -40,5 +43,6 @@ URL=http://localhost:5179/ \
   /usr/bin/node runner.mjs
 ```
 
-Expect `hash.ok` and `sense.ok` true with zero mismatches. Add new verify calls to
-`runner.mjs` as more passes (steer/integrate/metabolism) are ported.
+Expect every `*.ok` true with zero mismatches and `gpuErrors` empty. All five Tier A
+passes plus the resident chain are ported and covered; add a new verify call to
+`runner.mjs` whenever a further pass moves to the GPU.

@@ -18,11 +18,11 @@ This is the swarmr architecture (proven to hold thousands of entities at frame b
 
 ## Non-negotiable rules
 
-1. **SoA over typed arrays, always.** Agents are *not* objects. Each gene/field is its own `Float32Array`/`Int32Array` of length `MAX_AGENTS`. Agent `i`'s data is at index `i` of each array. There is no `Agent` class, no array of structs, no per-agent closures or behavior objects. The array *is* the pool.
+1. **SoA over typed arrays, always.** Agents are *not* objects. Each per-agent scalar field (`posX`, `velX`, `energy`, `lineageId`, `alive`) is its own `Float32Array`/`Int32Array`/`Uint8Array` of length `MAX_AGENTS`, and agent `i`'s value is at index `i`. Genes are the exception, and there is no per-gene array: the genome is a single flat `Float32Array` of length `MAX_AGENTS * GENE_COUNT`, interleaved per agent, so agent `i`'s genes occupy `[i * GENE_COUNT, i * GENE_COUNT + GENE_COUNT)` and every access is `genes[i * GENE_COUNT + GENE.X]` (rule 3). There is no `Agent` class, no array of structs, no per-agent closures or behavior objects. The arrays *are* the pool.
 
 2. **Zero allocation in the hot path.** No `new`, no array literals, no object spread, no closures created per-tick or per-agent inside any system that runs over the population. Pre-allocate once at capacity. Reuse. Death is an O(1) swap-remove; birth reuses a freed slot. Damage numbers / transient visuals use pooled sprites (swarmr pattern). Verify with the browser heap timeline: steady-state allocation profile must be flat.
 
-3. **The buffer contract (this is what makes WebGPU a slot-in).** Every **Tier A** system is a pure pass: `(read-only input buffers) -> (write output buffer)`. It reads flat typed arrays at fixed strides and writes one output buffer. It never walks linked structures, never mutates a buffer it's also reading in a way another agent depends on mid-pass, never holds a reference into the middle of an agent's data across calls. Gene access is always `genes[i * GENE_COUNT + GENE_X]`. If a system obeys this, its WGSL port is a mechanical body-rewrite with an identical buffer contract. **Do not break this discipline for convenience — it is the whole migration plan.** See `docs/webgpu-migration.md`.
+3. **The buffer contract (this is what makes WebGPU a slot-in).** Every **Tier A** system is a pure pass: `(read-only input buffers) -> (write output buffer)`. It reads flat typed arrays at fixed strides and writes one output buffer. It never walks linked structures, never mutates a buffer it's also reading in a way another agent depends on mid-pass, never holds a reference into the middle of an agent's data across calls. Gene access is always `genes[i * GENE_COUNT + GENE.X]`. If a system obeys this, its WGSL port is a mechanical body-rewrite with an identical buffer contract. **Do not break this discipline for convenience — it is the whole migration plan.** See `docs/webgpu-migration.md`.
 
 4. **Tier A vs Tier B — know which tier you're writing.**
    - **Tier A (GPU-portable, per-agent, uniform, parallel):** sensing/neighbor-gather, steering-from-genes, integration, metabolism. Written to the buffer contract. Destined for compute shaders.
@@ -45,7 +45,7 @@ This is the swarmr architecture (proven to hold thousands of entities at frame b
 
 ## Capacity & targets
 
-- `MAX_AGENTS` default **5000**, trivially adjustable (one constant). Pools allocate to this.
+- `MAX_AGENTS` is currently **20000** (`src/data/capacity.ts`), trivially adjustable (one constant). Pools allocate to this. It is a **buffer cap, not a population figure** — a default seeded run is food-bound and settles around 8000; the cap only binds when the world is fed (god-tool food paint) or the constant is lowered.
 - Milestone-1 CPU target: hold the population at frame budget headful, swarmr-style (logic tick well under budget, render cheap). The 3090 + WebGPU path is the intended destination for genuinely large loads — turning the intensity slider to max is explicitly "try big loads on the GPU."
 - Render is **not** on milestone-1's critical path for *correctness* (the success test is watching real emergent behavior), but the cyber-net skin is built in milestone 1 because the success test is **headful** — you watch it run. See `docs/simulation-systems.md` §Rendering.
 
@@ -84,12 +84,18 @@ src/
   tools/
     headless.ts        # no-render fast-forward + per-generation stats logging
     snapshot.ts        # serialize/restore full world state
+    *check.ts, probe.ts, ...  # per-study headless harnesses (amity, trade, predation, territory, ...)
 docs/
-  genome.md
+  genome.md            # the four standing design specs
   simulation-systems.md
   webgpu-migration.md
   tooling.md
+  BUGS.md, TUNING.md, *_PLAN.md, PETRIARCH*.md   # known issues, tunables, per-phase plans, feature specs
 ```
+
+The layout above names the load-bearing files, not every file. `src/sim/tierB/` and
+`src/data/` have grown with each authored layer (trade, caravans, bridge/roads,
+territory, stigmergy); the directory itself is the index.
 
 ---
 
@@ -102,7 +108,7 @@ npm install
 npm run dev          # Vite dev server
 npm run build        # type-check + production build to dist/ (static bundle)
 npm run typecheck    # type-check only
-npm run headless     # run tools/headless.ts: fast-forward + stats, no render
+npm run headless     # run src/tools/headless.ts: fast-forward + stats, no render
 ```
 
 `dist/` is a static bundle — host anywhere (Cloudflare Pages, GitHub Pages). Deploy convention follows brac.dev.

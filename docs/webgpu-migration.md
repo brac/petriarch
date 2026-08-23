@@ -69,7 +69,7 @@ Minimize readback size and frequency. Where a Tier B system can run on a slightl
 ## Intensity slider ↔ GPU
 
 The same slider that degrades gracefully on weak hardware is what you crank on the 3090:
-- **Population** — filled fraction of `MAX_AGENTS` (default 5000; raise the constant for genuinely large GPU loads).
+- **Population** — filled fraction of `MAX_AGENTS` (currently 20000, raised from 5000 during the port; raise the constant again for genuinely larger GPU loads).
 - **`THINK_INTERVAL`** — steer kernel cadence.
 - **Neighbor budget** — cells/neighbors sampled per agent.
 
@@ -92,7 +92,9 @@ Do **not** start the port until milestone 1 is watchable and the tooling exists 
 
 ## Progress
 
-**Step 3 — spatial hash (bring-up, in progress).** The counting-sort grid is ported
+*Append-only log: each entry was written as that step landed, so phrasing like "does not touch the sim loop yet" describes the state at the time of writing, not today. The current status is the summary at the end of this section.*
+
+**Step 3 — spatial hash (done, verified).** The counting-sort grid is ported
 to four compute kernels (`src/gpu/shaders/hash.wgsl.ts`: `clearCells` / `count` /
 `scan` / `scatter`) hosted by `src/gpu/gpuContext.ts` (owns the device + buffers at
 capacity) over `src/gpu/device.ts` (graceful-null device acquisition — no WebGPU ⇒
@@ -124,7 +126,7 @@ reassigning agent indices on births/deaths). Every GPU verify must **freeze a
 snapshot of the inputs before the first await** and compare both sides against that
 copy. Applies to the sense/steer/integrate/metabolism verifies too.
 
-**Step 4a — sense (bring-up, in progress).** `src/gpu/shaders/sense.wgsl.ts` ports
+**Step 4a — sense (done, verified).** `src/gpu/shaders/sense.wgsl.ts` ports
 sim/tierA/sense.ts: per agent, gather the 3×3 neighborhood from the resident grid and
 accumulate the kin centroid / separation / threat-avoidance aggregates, capped at the
 intensity budget. The seven aggregates are written **interleaved** (stride 7) into one

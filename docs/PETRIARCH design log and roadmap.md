@@ -2,9 +2,11 @@
 
 > Record of the design conversation and the forward-facing plan. Companion to the individual feature specs. North star: the Simpsons "Treehouse of Horror" petri-dish civilization — a closed world that rises, wars, advances, and worships on fast-forward — pushed as far as the stack allows.
 
-## What Petriarch is (current state)
+## What Petriarch was when this session ran
 
-GPU artificial-life sim. ~20,000 agents via WebGPU/WGSL on an RTX 3090, rendered with PixiJS v8. Agents have genetic traits (size, metabolism, social connection, aggression-leaning behavior); they forage on a regrowing food grid, consume, reproduce. Current emergent behavior: same-species clumping with border conflict over food; a fast green species reaches monoculture at the regrowth cap. Agents currently move randomly.
+> Snapshot of the sim as it stood at the time of the design conversation, kept because the reasoning below is a response to it. It is **not** the current state — for that see the [README](../README.md). Since then the steering pass became genome-driven (the "Ant rung" of the cognition doc), distinct lineages persist instead of collapsing to one green monoculture, and conflict, trade, caravans/roads and territory have all shipped.
+
+GPU artificial-life sim. A pool sized for 20,000 agents via WebGPU/WGSL on an RTX 3090, rendered with PixiJS v8. Agents have genetic traits (size, metabolism, social connection, aggression-leaning behavior); they forage on a regrowing food grid, consume, reproduce. Emergent behavior at the time: same-species clumping with border conflict over food; a fast green species reaching monoculture at the regrowth cap. Agents moved randomly.
 
 ## The through-line of this design session
 

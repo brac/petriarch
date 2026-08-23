@@ -31,9 +31,14 @@ export const GENE = {
   SIG_A:           12,
   SIG_B:           13,
   SIG_C:           14,
+  // --- morphology / body (Milestone 2) ---
+  RESILIENCE:      15,
+  EFFICIENCY:      16,
+  // --- social (authored Tier B layer) ---
+  TRADE:           17,
 } as const;
 
-export const GENE_COUNT = 15;
+export const GENE_COUNT = 18;
 
 // Per-gene [min, max] for clamping after mutation. Tunable.
 export const GENE_RANGE: Record<number, [number, number]> = { /* ... */ };
@@ -73,7 +78,7 @@ The per-agent mutation rate this agent applies to *its own* offspring. **A gene 
 > raises carrying capacity as it spreads. Tunables in `src/data/morphology.ts`; effects
 > live in metabolism (intake/move/hazard), integrate (speed), conflict (damage). Visual:
 > RESILIENCE desaturates the node (metallic), EFFICIENCY lightens it (`netRenderer`).
-> Still a stub: `SENSORY_RANGE` (perception radius — costs energy per tick and enlarges
+> Not built: `SENSORY_RANGE` (perception radius — costs energy per tick and enlarges
 > the spatial-hash query, so it needs a variable-size neighbor query; deferred).
 
 ---
@@ -108,6 +113,13 @@ Likelihood of contesting (fight) vs. ceding (flee) when meeting a dissimilar age
 A 2–3 dimensional **genetic tag** — a point in tag-space. **Not directly selected.** It's the value `KIN_COHESION` and the conflict rule *read* to decide "same group vs. different group" (similarity = distance in tag-space under a threshold). Because the tag drifts under mutation, lineages slowly diverge in tag-space — and that divergence *is* the creation of new tribes. You never author a tribe; a tribe is a cluster of agents close in tag-space that cohere to each other and contest outsiders.
 
 **Rendering hook:** map the signature to hue (see `simulation-systems.md` §Rendering). You then literally *watch speciation as colour drift* — one lineage's hue sweeping the map, or a cluster splitting into two diverging colours at a frontier.
+
+---
+
+## Social gene (the authored Tier B layer reads it)
+
+### `TRADE` (index 17, **implemented**)
+Willingness to barter surplus nutrient with a non-hostile neighbour instead of raiding it. Both partners' `TRADE` must clear `TRADE.tradeThreshold` for a swap to happen at all, and the swapped volume scales with `min` of the two partners' genes (`src/data/trade.ts`, `src/sim/tierB/trade.ts`). It trades against `AGGRESSION`: raiding piles up one nutrient and destroys part of the rest, while a barter fixes both partners' balance, so the payoff depends on which neighbours are around — frequency-dependent, like the rest of the set. It is read by an *authored* system, not by the Tier A steering pass.
 
 ---
 

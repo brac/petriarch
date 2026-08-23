@@ -24,8 +24,8 @@ benchmarks:
   - metric: "pacified frontier cells (amity study, 16k x 4 seeds)"
     value: "13 -> 245"
     target: "a broad trading district, not one hot pixel"
-  - metric: "global fights/k with amity vs no-trade"
-    value: "5176 -> 4357 (-26%)"
+  - metric: "global fights/k, amity on vs the trade-only control"
+    value: "5176 -> 4357 (-16%); the same run is -26% against the no-trade baseline, which starts from a different fights/k"
     target: "conflict recedes globally, not just relocates"
   - metric: "cross-gap trade under supply-scent (3 seeds x 8k, weight 0.6)"
     value: "+31% (874 -> 1145/k), traffic 1.2% -> 1.9%"
@@ -57,7 +57,7 @@ The provisioning gate's nonlinearity nudged the CPU-f64/GPU-f32 steer divergence
 
 ## Numbers
 
-Amity numbers come from `amitycheck.ts` (16k x 4 seeds): the winning config pushed pacified cells 13 -> 245 and cut global fights/k 26% versus no-trade while TRADE selection edged 0.45 -> 0.49. The crossing numbers come from `crossing.ts` (3 seeds x 8k). A later conflict-recession study (seed 11, 20k ticks) confirmed the thesis globally: per-capita fights fell 70% (1.25 -> 0.38/k/agent) as commerce took over.
+Amity numbers come from `amitycheck.ts` (16k x 4 seeds), which runs three configs: no-trade (the baseline), trade-only with suppression off (the control), and the amity coupling. The winning config pushed pacified cells 13 -> 245 and cut global fights/k 5176 -> 4357, which is -16% against the trade-only control and -26% against the no-trade baseline. Those two percentages are measured off different baselines, so 5176 -> 4357 is the -16% pair, not the -26% one. TRADE selection edged 0.45 -> 0.49. The study ran at 3b, before the phase-4 carriers existed in the codebase, so the recession is the amity field's doing, not the caravans'. The crossing numbers come from `crossing.ts` (3 seeds x 8k). A later conflict-recession study (seed 11, 20k ticks) confirmed the thesis globally: per-capita fights fell 70% (1.25 -> 0.38/k/agent) as commerce took over.
 
 ## Next
 

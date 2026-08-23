@@ -33,7 +33,7 @@ Thinking (2–3) is decoupled from acting (4) via `THINK_INTERVAL`, same accumul
 Built in milestone 1:
 
 ### Pools & world state
-SoA typed-array pools at `MAX_AGENTS` (5000, one constant). Per-agent arrays: position x/y, velocity x/y, energy, age, steering x/y (cached between thinks), alive-flag (or packed active set `[0,count)`), plus the genome buffer (`GENE_COUNT` floats per agent). Free-slot stack for O(1) birth; swap-remove for O(1) death.
+SoA typed-array pools at `MAX_AGENTS` (currently 20000 in `src/data/capacity.ts`, one constant — a buffer cap, not the running population). Per-agent arrays: position x/y, velocity x/y, energy, age, steering x/y (cached between thinks), alive-flag (or packed active set `[0,count)`), plus the genome buffer (`GENE_COUNT` floats per agent). Free-slot stack for O(1) birth; swap-remove for O(1) death.
 
 ### Resource field
 A lightweight grid of resource sites that deplete when consumed and regrow over time. Regrowth rate and spatial distribution are tunable (dev sliders) — clumped vs scattered is the single biggest lever on which strategies win. This is the entire selection pressure: no fitness function, just "is there food here, can you hold it, can you breed before you starve."

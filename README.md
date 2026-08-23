@@ -10,7 +10,7 @@ The aesthetic is **cyber-net / netrunner**: agents are glowing nodes, kin-cohesi
 
 ## What it does today
 
-- **~20,000 agents** simulated on the GPU via **WebGPU / WGSL** (developed on an RTX 3090), rendered with **PixiJS v8**.
+- **A pool sized for 20,000 agents**, simulated on the GPU via **WebGPU / WGSL** (developed on an RTX 3090) and rendered with **PixiJS v8**. `MAX_AGENTS = 20000` is the buffer capacity the GPU path was profiled at, not the typical headcount: a default seeded run is food-bound and settles around 8,000, and only reaches the cap when you feed it (god-tool food paint).
 - Agents carry genetic traits — size, metabolism, social connection, aggression — and forage a regrowing food field, consume, reproduce, and die. Selection is purely environmental: *agents that stay fed and breed leave more copies.* Nothing scores or hand-picks them.
 - **Emergent behavior you can watch:** same-lineage clumping, border conflict over food, predation niches, **trade** caravans that haul surplus between non-fighting groups across a dead zone — hardening roads as they go and cooling frontiers into pacified markets — and **territory**, where societies fight harder on their own turf and hold coherent borders. Conflict flares early, then recedes as commerce takes over.
 - Two first-class live controls — an **intensity** slider (how heavy each agent is: population, think-interval, neighbor budget) and a **sim-speed** slider (how fast the clock runs) — plus a **cognition** knob and a dev panel of live tunables.
@@ -21,7 +21,7 @@ The aesthetic is **cyber-net / netrunner**: agents are glowing nodes, kin-cohesi
 
 Some load-bearing rules (the full contract is in [`CLAUDE.md`](CLAUDE.md)):
 
-- **SoA, always.** Agents are not objects; each gene/field is its own typed array of length `MAX_AGENTS`.
+- **SoA, always.** Agents are not objects. Each per-agent field (`posX`, `energy`, `lineageId`) is its own typed array of length `MAX_AGENTS`. The genome is the exception: it is one flat `Float32Array` of `MAX_AGENTS * GENE_COUNT`, interleaved per agent, read as `genes[i * GENE_COUNT + GENE.X]`.
 - **Zero allocation in the hot path.** Pre-allocate at capacity, reuse, swap-remove on death.
 - **Tier A vs Tier B.** Tier A (sensing, steering, integration, metabolism) is GPU-portable and written to a strict buffer contract. Tier B (reproduction, conflict, trade, god-tools, stats) stays on the CPU.
 - **Seeded PRNG everywhere.** One `mulberry32` instance — runs are reproducible from a seed, which is how snapshots, headless runs, and "why did this lineage win" debugging stay deterministic.
@@ -39,9 +39,9 @@ npm run typecheck  # type-check only
 npm run headless   # fast-forward + per-generation stats, no render
 ```
 
-A WebGPU-capable browser (recent Chrome/Edge) is recommended to exercise the GPU path; the simulation also runs on the CPU. `dist/` is a static bundle you can host anywhere (Cloudflare Pages, GitHub Pages).
+A WebGPU-capable browser (recent Chrome/Edge) is recommended to exercise the GPU path; the simulation also runs on the CPU. `dist/` is a static bundle you can host anywhere (Vercel, Cloudflare Pages, GitHub Pages).
 
-> A hosted demo is not deployed yet.
+> Live demo: **<https://petriarch.brac.dev>**
 
 ## Project layout
 

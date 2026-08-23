@@ -28,16 +28,16 @@ npm run --silent headless -- --csv > run.csv      # machine-readable
 | Lever | Constant(s) | File | Current |
 |---|---|---|---|
 | **Movement amount** | `baseMaxSpeed`, `steerAccel`, `wallBounce`, `sizeSpeedFactor` | `src/data/sim.ts` | 95, 6, 0.5, 0.3 |
-| **Food available** | `cellCapacity`, `clumping`, `clumpCount`, `startFrac` | `src/data/resources.ts` | 14, 0.7, 14, 0.35 |
+| **Food available** | `cellCapacity`, `clumping`, `clumpCount`, `startFrac` | `src/data/resources.ts` | 14, 0.7, 56, 0.35 |
 | **Regrowth rate** | `regrowthRate` | `src/data/resources.ts` | 0.045 |
 | **Intake rate** | `intakeRate`, `intakeSizeExp` | `src/data/costs.ts` | 1.1, 1.0 |
 | **Metabolic costs** | `baseDrain` (flat), `sizeDrain`, `moveCost`, `senescenceDrain` | `src/data/costs.ts` | 0.05, 0.05, 0.0009, 0.25 |
-| **Mutation scale** | `baseMutationScale`, `mutabilityFloor` | `src/data/sim.ts` | 0.08, 0.05 |
+| **Mutation scale** | `baseMutationScale`, `mutabilityFloor` | `src/data/sim.ts` | 0.07, 0.05 |
 | **Reproduction** | `reproInvestFrac`, `birthJitter` | `src/data/sim.ts` | 0.7, 14 |
-| **Conflict** | `range`, `aggressionThreshold`, `loserDamage`, `stealFrac`, `cooldownTicks`, `contestResourceMin` | `src/data/conflict.ts` | 45, 0.45, 10, 0.8, 18, 2 |
+| **Conflict** | `range`, `aggressionThreshold`, `loserDamage`, `stealFrac`, `cooldownTicks`, `contestResourceMin` | `src/data/conflict.ts` | 45, 0.45, 10, 0.8, 18, 0.5 |
 | **Sensing** | `senseRadius`, `separationRadius`, `sigThreshold` | `src/data/sim.ts` | 60, 26, 0.22 |
 | **God radii/strength** | `bloom*`, `hazard*`, `smite*` | `src/data/resources.ts` | — |
-| **Population / seeding** | `initialPop`, `founderTribes`, `MAX_AGENTS` | `src/data/sim.ts`, `capacity.ts` | 700, 8, 5000 |
+| **Population / seeding** | `initialPop`, `founderTribes`, `MAX_AGENTS` | `src/data/sim.ts`, `capacity.ts` | 2800, 16, 20000 |
 
 Also wire the standard dev controls noted in CLAUDE.md: seed entry, snapshot/restore,
 pause, and the headless trigger.
@@ -51,7 +51,8 @@ pause, and the headless trigger.
    (`metabolism.ts`), so evolution can't drive drain → 0 and push carrying capacity
    past the cap; (b) lowered food supply (`regrowthRate` 0.06→0.045, `cellCapacity`
    20→14, `startFrac` 0.6→0.35 to kill the initial boom). Result: equilibrates
-   ~2000-2400 at full intensity (cap 5000), food-bound at every intensity (≈2348 at
+   ~2000-2400 at full intensity (measured against the then-current 5000 cap and the
+   1920×1080 world; both have since grown — see BUGS.md "Bigger map"), food-bound at every intensity (≈2348 at
    55%), with mild famine/regrowth oscillation. Side effect: METABOLIC_RATE regained
    its tradeoff (rises under scarcity — you must move to find patchy food). Tuned
    empirically via a headless sweep across seeds.

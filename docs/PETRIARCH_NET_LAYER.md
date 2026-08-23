@@ -4,7 +4,9 @@
 
 ## Context
 
-Petriarch is a GPU agent-life simulation: ~20,000 units processed via WebGPU/WGSL on an RTX 3090, rendered with PixiJS v8. Agents carry genetic traits (size, metabolism, social connection, aggression-leaning behavior) and forage on a regrowing food grid. Current emergent behavior: same-species clumping with border conflict over food; a fast-metabolizing green species reaches monoculture at the regrowth cap.
+> This brief describes the sim as it stood when the spec was written. It is a planning document, not a status report — for the current state see the [README](../README.md). Phase 1's stigmergy fields have since shipped (`trail`, `claim`, `danger`, plus `amity` and `roadAttract`), and roads/depot-style construction arrived through the trade arc rather than through Phases 2–4 as sketched here.
+
+Petriarch is a GPU agent-life simulation: a pool sized for 20,000 units processed via WebGPU/WGSL on an RTX 3090, rendered with PixiJS v8. Agents carry genetic traits (size, metabolism, social connection, aggression-leaning behavior) and forage on a regrowing food grid. Emergent behavior at the time of writing: same-species clumping with border conflict over food; a fast-metabolizing green species reaching monoculture at the regrowth cap.
 
 We are adding three stacked layers to push the sim from flat competition into emergent civilization (territory, trade, war, construction). The layers are **stigmergy → civilization tiers → network graph**, built strictly in that order.
 

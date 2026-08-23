@@ -175,5 +175,3 @@ I recommend **A**, with B's sharpener pre-specified and ready if the 3b study sh
   [[brac-decisions-and-optimization]] (present forks + recommend — this doc's fork section).
 - Code anchors: `src/sim/tierB/{trade,conflict,stigmergy}.ts`, `src/data/{trade,conflict,stigmergy}.ts`,
   `src/tools/tradecheck.ts`, `src/state/world.ts` (field alloc), `src/tools/snapshot.ts` (version bump).
-</content>
-</invoke>

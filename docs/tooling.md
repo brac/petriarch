@@ -10,12 +10,12 @@ The three tools reinforce each other: **headless + seeded + snapshot** is what m
 
 ## 1. Headless fast-forward + stats
 
-A no-render run mode (`npm run headless`, `tools/headless.ts`) that ticks the sim as fast as the CPU allows and logs population-level stats periodically (per "generation" — e.g. every N ticks, or per mean-lifespan interval).
+A no-render run mode (`npm run headless`, `src/tools/headless.ts`) that ticks the sim as fast as the CPU allows and logs population-level stats periodically (per "generation" — e.g. every N ticks, or per mean-lifespan interval).
 
 **Stats to log each interval:**
 - Population size; births and deaths since last interval.
 - **Lineage count** — cluster agents by signature (distance threshold in tag-space) and count distinct clusters. This is the headline number: *are distinct lineages persisting?*
-- Per-gene **mean and variance** across the live population (all 15 genes). Variance collapsing toward zero on a gene = the population converged on that axis (possibly fine, possibly a missing tradeoff). Variance staying high = a real strategy split.
+- Per-gene **mean and variance** across the live population (`GENE_COUNT` is 18 today; the shipped tool prints a chosen subset — see the `REPORT` table in `src/tools/headless.ts`). Variance collapsing toward zero on a gene = the population converged on that axis (possibly fine, possibly a missing tradeoff). Variance staying high = a real strategy split.
 - Optional: dominant strategy fingerprints (e.g. centroid genome of each lineage cluster) so you can name what's coexisting ("fast-greedy" vs "big-territorial").
 
 Output as CSV/JSON lines so you can chart runs (gene variance over time, lineage count over time) without a UI.

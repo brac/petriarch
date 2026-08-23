@@ -1,8 +1,10 @@
 # Petriarch — Phase 0: Foundational Setup
 
+> **Archive — Phase 0 is complete and shipped.** This is the original build plan, kept as a record of how the scaffold was specified. Every constant and file list in it is the *Phase 0* value: `GENE_COUNT` was 15 (it is 18 now), `MAX_AGENTS` was 5000 (20000 now), and the world was 1920×1080 (3840×2160 now). Read `CLAUDE.md`, `docs/genome.md` and `src/data/` for current values, never this file.
+
 ## Context
 
-Petriarch is a greenfield browser a-life god game. The repo currently holds **only** `CLAUDE.md` and four design docs (`docs/genome.md`, `simulation-systems.md`, `webgpu-migration.md`, `tooling.md`) — there is no `src/`, no `package.json`, no build. The project deliberately reuses the proven engine architecture from the adjacent **swarmr** repo (`/mnt/c/Users/Ben Bracamonte/Work/swarmr`): SoA typed-array pools, a zero-allocation hot path, a fixed-timestep loop, a uniform-grid spatial hash, seeded RNG, and a batched PixiJS v8 renderer.
+Petriarch is a greenfield browser a-life god game. At the time of writing the repo held **only** `CLAUDE.md` and four design docs (`docs/genome.md`, `simulation-systems.md`, `webgpu-migration.md`, `tooling.md`) — no `src/`, no `package.json`, no build. The project deliberately reuses the proven engine architecture from the adjacent **swarmr** repo: SoA typed-array pools, a zero-allocation hot path, a fixed-timestep loop, a uniform-grid spatial hash, seeded RNG, and a batched PixiJS v8 renderer.
 
 **Phase 0 builds the scaffold and core infrastructure that must exist before any Milestone-1 gameplay/evolution system.** No evolution, no steering, no conflict logic — those are Milestone 1. Phase 0's job is to stand up the project skeleton, port the reusable swarmr engine pieces, define the data contracts (genome, capacity), allocate the World/pools, wire the fixed-timestep loop + controls, and initialize the full Pixi rendering pipeline.
 
@@ -15,7 +17,7 @@ Petriarch is a greenfield browser a-life god game. The repo currently holds **on
 
 ## Reusable swarmr code (verified APIs)
 
-Source paths under `/mnt/c/Users/Ben Bracamonte/Work/swarmr/`.
+Source paths below are relative to a checkout of the swarmr repo.
 
 **Port near-verbatim** (header comment updated to Petriarch context):
 - `src/core/rng.ts` → `src/core/rng.ts`. `class Rng { constructor(seed); next(); range(min,max); int(min,max) }`. The single randomness source; one instance owned by `World`.
